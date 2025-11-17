@@ -86,6 +86,8 @@ static void option_handler(struct net_dhcpv4_option_callback *cb,
 int main(void)
 {
 	LOG_INF("Run dhcpv4 client");
+	//struct net_if *iface = net_if_get_default();
+	//LOG_INF("Default iface %p, flags %x", iface, iface ? iface->flags : 0);
 
 	net_mgmt_init_event_callback(&mgmt_cb, handler,
 				     NET_EVENT_IPV4_ADDR_ADD);
@@ -97,6 +99,7 @@ int main(void)
 
 	net_dhcpv4_add_option_callback(&dhcp_cb);
 
+	//LOG_INF("start dhcpv4 client");
 	net_if_foreach(start_dhcpv4_client, NULL);
 	return 0;
 }
