@@ -111,7 +111,7 @@ static void option_handler(struct net_dhcpv4_option_callback *cb,
 		net_addr_ntop(AF_INET, cb->data, buf, sizeof(buf)));
 }
 
-int main(void)
+int main(void) ..................t6n56 ...................
 {
 	LOG_INF("=== DHCPv4 Client Sample ===");
 	

@@ -1,0 +1,94 @@
+/*
+ * Device Tree overlay for ENC28J60 SPI Ethernet Controller
+ * 
+ * This overlay configures the ENC28J60 Ethernet controller connected via SPI.
+ * Modify the SPI controller, GPIO pins, and other settings according to your
+ * hardware configuration.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+
+/ {
+    compatible = "your,board-compatible-string";
+};
+
+/*
+ * Configure SPI controller
+ * Change &spi0 to the appropriate SPI controller on your board (e.g., &spi1, &spi2)
+ */
+&spi0 {
+    status = "okay";
+    
+    /*
+     * ENC28J60 device node
+     * 
+     * reg = <0> means using CS0 (first chip select)
+     * Change to <1> for CS1, <2> for CS2, etc.
+     */
+    enc28j60: enc28j60@0 {
+        compatible = "microchip,enc28j60";
+        reg = <0>;  /* SPI CS line number */
+        
+        /*
+         * SPI clock frequency in Hz
+         * ENC28J60 maximum frequency is 20MHz
+         * If you encounter communication issues, try reducing this value
+         */
+        spi-max-frequency = <10000000>;  /* 10 MHz */
+        
+        /*
+         * Interrupt GPIO configuration
+         * Format: <&gpio_controller pin_number active_level>
+         * 
+         * Example for nRF52840 with P0.05:
+         * int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+         * 
+         * ENC28J60 interrupt is active low, so use GPIO_ACTIVE_LOW
+         * Modify the GPIO controller and pin number according to your hardware
+         */
+        int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+        
+        /*
+         * Optional: Enable full-duplex mode
+         * Comment out this line to use half-duplex mode
+         */
+        full-duplex;
+        
+        /*
+         * Optional: Set MAC address manually
+         * Format: [byte0 byte1 byte2 byte3 byte4 byte5]
+         * 
+         * If not specified, the driver will use a random MAC address
+         * with Microchip OUI (00:04:A3)
+         * 
+         * Uncomment and modify the MAC address as needed:
+         */
+        /* local-mac-address = [00 04 A3 12 34 56]; */
+        
+        /*
+         * Optional: Use random MAC address
+         * Uncomment this line to explicitly enable random MAC generation:
+         */
+        /* zephyr,random-mac-address; */
+        
+        /*
+         * Optional: Hardware receive filter configuration
+         * Default value is 0xA3 (unicast, multicast, broadcast with CRC check)
+         * 
+         * Uncomment and modify if needed:
+         */
+        /* hw-rx-filter = <0xA3>; */
+    };
+};
+
+/*
+ * Ensure GPIO controller is enabled
+ * Modify &gpio0 to match the GPIO controller used in int-gpios above
+ */
+&gpio0 {
+    status = "okay";
+};
+
