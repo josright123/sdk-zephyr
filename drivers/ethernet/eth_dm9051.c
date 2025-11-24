@@ -24,15 +24,15 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/ethernet.h>
 #include <ethernet/eth_stats.h>
 
-#include "dm9051_priv.h"
+#include "eth_dm9051_priv.h"
 #include "eth.h"
 
 //#define D10D24S 11
 
 static int eth_enc28j60_soft_reset(const struct device *dev)
 {
-	const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[2] = { ENC28J60_SPI_SC, 0xFF };
+	const struct dm9051_config *config = dev->config;
+	uint8_t buf[2] = { DM9051_NCR, 0xFF };
 	const struct spi_buf tx_buf = {
 		.buf = buf,
 		.len = 1,
@@ -47,7 +47,7 @@ static int eth_enc28j60_soft_reset(const struct device *dev)
 
 static void eth_enc28j60_set_bank(const struct device *dev, uint16_t reg_addr)
 {
-	const struct eth_enc28j60_config *config = dev->config;
+	const struct dm9051_config *config = dev->config;
 	uint8_t buf[2];
 	const struct spi_buf tx_buf = {
 		.buf = buf,
@@ -66,11 +66,11 @@ static void eth_enc28j60_set_bank(const struct device *dev, uint16_t reg_addr)
 		.count = 1
 	};
 
-	buf[0] = ENC28J60_SPI_RCR | ENC28J60_REG_ECON1;
+	buf[0] = OPC_REG_W | DM9051_NCR;
 	buf[1] = 0x0;
 
 	if (!spi_transceive_dt(&config->spi, &tx, &rx)) {
-		buf[0] = ENC28J60_SPI_WCR | ENC28J60_REG_ECON1;
+		buf[0] = OPC_REG_W | DM9051_NCR;
 		buf[1] = (buf[1] & 0xFC) | ((reg_addr >> 8) & 0x03);
 
 		spi_write_dt(&config->spi, &tx);
@@ -406,7 +406,7 @@ static void eth_enc28j60_init_phy(const struct device *dev)
 //	}
 }
 
-static struct net_if *get_iface(struct eth_enc28j60_runtime *ctx)
+static struct net_if *get_iface(struct dm9051_runtime *ctx)
 {
 	return ctx->iface;
 }
@@ -500,8 +500,8 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 
 static void enc28j60_read_packet(const struct device *dev, uint16_t frm_len)
 {
-	const struct eth_enc28j60_config *config = dev->config;
-	struct eth_enc28j60_runtime *context = dev->data;
+	const struct dm9051_config *config = dev->config;
+	struct dm9051_runtime *context = dev->data;
 	struct net_buf *pkt_buf;
 	struct net_pkt *pkt;
 	uint16_t lengthfr;
@@ -565,15 +565,15 @@ static void enc28j60_read_packet(const struct device *dev, uint16_t frm_len)
 
 static int eth_enc28j60_rx(const struct device *dev)
 {
-	struct eth_enc28j60_runtime *context = dev->data;
+	struct dm9051_runtime *context = dev->data;
 	uint8_t counter;
 
 	/* Errata 6. The Receive Packet Pending Interrupt Flag (EIR.PKTIF)
 	 * does not reliably/accurately report the status of pending packet.
 	 * Use EPKTCNT register instead.
 	*/
-	eth_enc28j60_set_bank(dev, ENC28J60_REG_EPKTCNT);
-	eth_enc28j60_read_reg(dev, ENC28J60_REG_EPKTCNT, &counter);
+	eth_enc28j60_set_bank(dev, DM9051_NCR);
+	eth_enc28j60_read_reg(dev, DM9051_NCR, &counter);
 	if (!counter) {
 		return 0;
 	}
@@ -582,17 +582,17 @@ static int eth_enc28j60_rx(const struct device *dev)
 
 	do {
 		uint16_t frm_len = 0U;
-		uint8_t info[RSV_SIZE];
+		uint8_t info[4];
 		uint16_t next_packet;
 		uint8_t rdptl = 0U;
 		uint8_t rdpth = 0U;
 
 		/* remove read fifo address to packet header address */
-		eth_enc28j60_set_bank(dev, ENC28J60_REG_ERXRDPTL);
-		eth_enc28j60_read_reg(dev, ENC28J60_REG_ERXRDPTL, &rdptl);
-		eth_enc28j60_read_reg(dev, ENC28J60_REG_ERXRDPTH, &rdpth);
-		eth_enc28j60_write_reg(dev, ENC28J60_REG_ERDPTL, rdptl);
-		eth_enc28j60_write_reg(dev, ENC28J60_REG_ERDPTH, rdpth);
+		eth_enc28j60_set_bank(dev, DM9051_NCR);
+		eth_enc28j60_read_reg(dev, DM9051_NCR, &rdptl);
+		eth_enc28j60_read_reg(dev, DM9051_NCR, &rdpth);
+		eth_enc28j60_write_reg(dev, DM9051_NCR, rdptl);
+		eth_enc28j60_write_reg(dev, DM9051_NCR, rdpth);
 
 		/* Read address for next packet */
 		eth_enc28j60_read_mem(dev, info, 2);
@@ -618,17 +618,14 @@ static int eth_enc28j60_rx(const struct device *dev)
 		enc28j60_read_packet(dev, frm_len);
 
 		/* Free buffer memory and decrement rx counter */
-		eth_enc28j60_set_bank(dev, ENC28J60_REG_ERXRDPTL);
-		eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXRDPTL,
-				       next_packet & 0xFF);
-		eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXRDPTH,
-				       next_packet >> 8);
-		eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_ECON2,
-					 ENC28J60_BIT_ECON2_PKTDEC);
+		eth_enc28j60_set_bank(dev, DM9051_NCR);
+		eth_enc28j60_write_reg(dev, DM9051_NCR, next_packet & 0xFF);
+		eth_enc28j60_write_reg(dev, DM9051_NCR, next_packet >> 8);
+		eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
 
 		/* Check if there are frames to clean from the buffer */
-		eth_enc28j60_set_bank(dev, ENC28J60_REG_EPKTCNT);
-		eth_enc28j60_read_reg(dev, ENC28J60_REG_EPKTCNT, &counter);
+		eth_enc28j60_set_bank(dev, DM9051_NCR);
+		eth_enc28j60_read_reg(dev, DM9051_NCR, &counter);
 	} while (counter);
 
 	k_sem_give(&context->tx_rx_sem);
@@ -637,8 +634,7 @@ static int eth_enc28j60_rx(const struct device *dev)
 	 * PKTIF was automatically cleared in eth_enc28j60_rx() when EPKTCNT
 	 * reached zero, so no need to clear it.
 	 */
-	eth_enc28j60_clear_eth_reg(dev, ENC28J60_REG_EIR,
-				   ENC28J60_BIT_EIR_RXERIF);
+	eth_enc28j60_clear_eth_reg(dev, DM9051_NCR, NCR_RST);
 
 	return 0;
 }
@@ -649,7 +645,7 @@ static void eth_enc28j60_rx_thread(void *p1, void *p2, void *p3)
 	ARG_UNUSED(p3);
 
 	const struct device *dev = p1;
-	struct eth_enc28j60_runtime *context = dev->data;
+	struct dm9051_runtime *context = dev->data;
 	uint8_t int_stat;
 
 	while (true) {
@@ -658,16 +654,14 @@ static void eth_enc28j60_rx_thread(void *p1, void *p2, void *p3)
 		/* Disable interrupts during processing, otherwise there's a small race
 		 * window where we can miss one!
 		 */
-		eth_enc28j60_clear_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_INTIE);
+		eth_enc28j60_clear_eth_reg(dev, DM9051_NCR, NCR_RST);
 
-		eth_enc28j60_read_reg(dev, ENC28J60_REG_EIR, &int_stat);
-		if (int_stat & ENC28J60_BIT_EIR_LINKIF) {
-			uint16_t phir;
-			uint16_t phstat2;
-			/* Clear link change interrupt flag by PHIR reg read */
-			eth_enc28j60_read_phy(dev, ENC28J60_PHY_PHIR, &phir);
-			eth_enc28j60_read_phy(dev, ENC28J60_PHY_PHSTAT2, &phstat2);
-			if (phstat2 & ENC28J60_BIT_PHSTAT2_LSTAT) {
+		eth_enc28j60_read_reg(dev, DM9051_NCR, &int_stat);
+		if (int_stat & NCR_RST) {
+			uint16_t nstat;
+			/* Clear link change interrupt flag by NSTAT reg read */
+			eth_enc28j60_read_reg(dev, DM9051_NCR, &nstat);
+			if (nstat & NCR_RST) {
 				LOG_INF("%s: Link up", dev->name);
 				/* We may have been interrupted before L2 init complete
 				 * If so flag that the carrier should be set on in init
@@ -692,7 +686,7 @@ static void eth_enc28j60_rx_thread(void *p1, void *p2, void *p3)
 		eth_enc28j60_rx(dev);
 
 		/* Now that the IRQ line was released, enable interrupts back */
-		eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_INTIE);
+		eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
 	}
 }
 
@@ -845,22 +839,22 @@ static int eth_enc28j60_init(const struct device *dev)
 
 
 	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_INTIE);
-	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_PKTIE);
-	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_LINKIE);
-	eth_enc28j60_write_phy(dev, ENC28J60_PHY_PHIE, ENC28J60_BIT_PHIE_PGEIE |
-				ENC28J60_BIT_PHIE_PLNKIE);
+	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
+	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
+	eth_enc28j60_write_phy(dev, DM9051_NCR, NCR_RST);
 
 	/* Enable Reception */
-	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_ECON1,
-				 ENC28J60_BIT_ECON1_RXEN);
+	eth_enc28j60_set_eth_reg(dev, DM9051_NCR,
+				 NCR_RST);
 
-
+#if 0
 	k_thread_create(&context->thread, context->thread_stack,
 			CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE,
 			eth_enc28j60_rx_thread,
 			(void *)dev, NULL, NULL,
 			K_PRIO_COOP(CONFIG_ETH_ENC28J60_RX_THREAD_PRIO),
-			0, K_NO_WAIT);*/
+			0, K_NO_WAIT);
+#endif
 
 	LOG_INF("%s: Initialized", dev->name);
 
@@ -875,7 +869,7 @@ static int eth_enc28j60_init(const struct device *dev)
 		.int_sem = Z_SEM_INITIALIZER((eth_enc28j60_runtime_##inst).int_sem, 0, UINT_MAX),  \
 	};                                                                                         \
                                                                                                    \
-	static const struct eth_enc28j60_config eth_enc28j60_config_##inst = {                     \
+	static const struct dm9051_config dm9051_config_##inst = {                     \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
 		.full_duplex = DT_INST_PROP(0, full_duplex),                                       \
@@ -885,7 +879,7 @@ static int eth_enc28j60_init(const struct device *dev)
 	};                                                                                         \
                                                                                                    \
 	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_enc28j60_init, NULL, &eth_enc28j60_runtime_##inst, \
-				      &eth_enc28j60_config_##inst, CONFIG_ETH_INIT_PRIORITY,       \
+				      &dm9051_config_##inst, CONFIG_ETH_INIT_PRIORITY,       \
 				      &api_funcs, NET_ETH_MTU);
 
 DT_INST_FOREACH_STATUS_OKAY(ENC28J60_DEFINE);

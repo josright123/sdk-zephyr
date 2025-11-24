@@ -6,75 +6,17 @@
  * hardware configuration.
  */
 
-/dts-v1/;
-/plugin/;
-
-#include <dt-bindings/gpio/gpio.h>
-
-/ {
-    /*compatible = "nordic,nrf54l15dk-nrf54l15-cpuapp"; */
-    compatible = "nordic,nrf54l15dk_nrf54l15_cpuapp";
-};
-
-/*
- * Configure SPI controller
- * Change &spi0 to the appropriate SPI controller on your board (e.g., &spi1, &spi2)
- * For nRF54L15, typically use &spi0 or &spi1
- */
-&spi0 {
+&spi00 {
 	status = "okay";
 	
-	/*
-	 * DM9051 device node
-	 * 
-	 * reg = <0> means using CS0 (first chip select)
-	 * Change to <1> for CS1, <2> for CS2, etc.
-	 */
 	dm9051: dm9051@0 {
 		compatible = "davicom,dm9051";
-		reg = <0>;  /* SPI CS line number */
-		
-		/*
-		 * SPI clock frequency in Hz
-		 * DM9051 maximum frequency is typically 25MHz
-		 * If you encounter communication issues, try reducing this value
-		 */
-		spi-max-frequency = <20000000>;  /* 20 MHz */
-		
-		/*
-		 * Interrupt GPIO configuration
-		 * Format: <&gpio_controller pin_number active_level>
-		 * 
-		 * Example for nRF54L15 with P0.05:
-		 * int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
-		 * 
-		 * DM9051 interrupt is typically active low, so use GPIO_ACTIVE_LOW
-		 * Modify the GPIO controller and pin number according to your hardware
-		 */
-		int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
-		
-		/*
-		 * Optional: Set MAC address manually
-		 * Format: [byte0 byte1 byte2 byte3 byte4 byte5]
-		 * 
-		 * If not specified, the driver will use a random MAC address
-		 * 
-		 * Uncomment and modify the MAC address as needed:
-		 */
-		/* local-mac-address = [00 02 F7 12 34 56]; */
-		
-		/*
-		 * Optional: Use random MAC address
-		 * Uncomment this line to explicitly enable random MAC generation:
-		 */
-		/* zephyr,random-mac-address; */
+		reg = <0>;
+		spi-max-frequency = <20000000>;
+		int-gpios = <&gpio0 5 1>;
 	};
 };
 
-/*
- * Ensure GPIO controller is enabled
- * Modify &gpio0 to match the GPIO controller used in int-gpios above
- */
 &gpio0 {
 	status = "okay";
 };

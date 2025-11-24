@@ -271,6 +271,7 @@ struct dm9051_runtime {
 
 	struct k_mutex spi_mutex;
 	struct k_mutex tx_mutex;
+	struct k_sem tx_rx_sem;
 	struct k_sem int_sem;
 
 	K_KERNEL_STACK_MEMBER(thread_stack,
@@ -288,6 +289,8 @@ struct dm9051_runtime {
 	bool link_up;
 
 	uint8_t nsr_cnt;
+	bool iface_initialized : 1;
+	bool iface_carrier_on_init : 1;
 };
 
 #define PHY_STATUS_REG            (0x01)           /*!< basic mode status register */
