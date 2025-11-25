@@ -1,50 +1,32 @@
 /*
- * Device Tree overlay for ENC28J60 SPI Ethernet Controller on nRF54L15DK
+ * Device Tree overlay for DM9051 SPI Ethernet Controller on nRF54L15DK
  * 
- * This overlay configures the ENC28J60 Ethernet controller connected via SPI22.
- * SPI22 is the designated Wi-Fi/Shield SPI interface on the nRF54L15DK.
+ * This overlay configures the DM9051 Ethernet controller connected via SPI00.
+ * SPI00 is a high-speed SPI interface (up to 32MHz) on the nRF54L15DK.
  * 
- * Pin connections (based on typical Arduino header layout):
- * - SCK:  P1.11 (Arduino D13)
- * - MOSI: P1.12 (Arduino D11)
- * - MISO: P0.11 (Arduino D12)
- * - CS:   P0.6  (Arduino D10) - configured in cs-gpios
- * - INT:  P0.5  (Arduino D9)  - adjust based on your hardware
+ * Pin connections:
+ * - SCK:  P2.1  - SPI Clock
+ * - MOSI: P2.2  - SPI MOSI (Master Out Slave In)
+ * - MISO: P2.4  - SPI MISO (Master In Slave Out)
+ * - CS:   P2.3  - Chip Select (configured in cs-gpios)
+ * - INT:  P2.5  - Interrupt pin (adjust based on your hardware)
  * 
  * NOTE: Verify these pin assignments match your actual hardware connections!
+ * If using different pins, update the CS and INT GPIO assignments below.
  */
 
-&pinctrl {
-	spi22_default: spi22_default {
-		group1 {
-			psels = <NRF_PSEL(SPIM_SCK, 1, 11)>,
-				<NRF_PSEL(SPIM_MOSI, 1, 12)>,
-				<NRF_PSEL(SPIM_MISO, 0, 11)>;
-		};
-	};
-
-	spi22_sleep: spi22_sleep {
-		group1 {
-			psels = <NRF_PSEL(SPIM_SCK, 1, 11)>,
-				<NRF_PSEL(SPIM_MOSI, 1, 12)>,
-				<NRF_PSEL(SPIM_MISO, 0, 11)>;
-			low-power-enable;
-		};
-	};
-};
-
-&spi22 {
+&spi00 {
 	status = "okay";
-	cs-gpios = <&gpio0 6 GPIO_ACTIVE_LOW>;
-	pinctrl-0 = <&spi22_default>;
-	pinctrl-1 = <&spi22_sleep>;
+	cs-gpios = <&gpio2 3 GPIO_ACTIVE_LOW>;
+	pinctrl-0 = <&spi00_default>;
+	pinctrl-1 = <&spi00_sleep>;
 	pinctrl-names = "default", "sleep";
 	
 	dm9051: dm9051@0 {
 		compatible = "davicom,dm9051";
 		reg = <0>;
-		spi-max-frequency = <20000000>;
-		int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+		spi-max-frequency = <4000000>;  /* 4MHz - reduced for stability */
+		int-gpios = <&gpio2 5 GPIO_ACTIVE_LOW>;
 		
 		/* Local MAC address */
 		local-mac-address = [00 11 22 33 44 55];
@@ -56,5 +38,9 @@
 };
 
 &gpio1 {
+	status = "okay";
+};
+
+&gpio2 {
 	status = "okay";
 };
