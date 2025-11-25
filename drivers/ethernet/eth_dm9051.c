@@ -5,10 +5,10 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT davicom_dm9051 //to be operated
+#define DT_DRV_COMPAT davicom_dm9051 // to be operated
 
 #define LOG_MODULE_NAME eth_dm9051
-#define LOG_LEVEL CONFIG_ETHERNET_LOG_LEVEL
+#define LOG_LEVEL       CONFIG_ETHERNET_LOG_LEVEL
 
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(LOG_MODULE_NAME);
@@ -27,24 +27,22 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include "eth_dm9051_priv.h"
 #include "eth.h"
 
-//#define D10D24S 11
+// #define D10D24S 11
 
-static int eth_enc28j60_soft_reset(const struct device *dev)
-{
-	const struct dm9051_config *config = dev->config;
-	uint8_t buf[2] = { DM9051_NCR, 0xFF };
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 1,
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
+//static int eth_enc28j60_soft_reset(const struct device *dev)
+//{
+//	const struct dm9051_config *config = dev->config;
+//	uint8_t buf[2] = {DM9051_NCR, 0xFF};
+//	const struct spi_buf tx_buf = {
+//		.buf = buf,
+//		.len = 1,
+//	};
+//	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+//
+//	return spi_write_dt(&config->spi, &tx);
+//}
 
-	return spi_write_dt(&config->spi, &tx);
-}
-
+#if 0
 static void eth_enc28j60_set_bank(const struct device *dev, uint16_t reg_addr)
 {
 	const struct dm9051_config *config = dev->config;
@@ -340,7 +338,35 @@ static int eth_enc28j60_init_buffers(const struct device *dev)
 
 	return 0;
 }
+#endif
 
+static void eth_dm9051_init_mac(const struct device *dev)
+{
+	// const struct eth_dm9051_config *config = dev->config;
+	struct dm9051_runtime *context = dev->data;
+	// uint8_t data_macon;
+	int val[6];
+
+	val[0] = context->mac_address[0];
+	val[1] = context->mac_address[1];
+	val[2] = context->mac_address[2];
+	val[3] = context->mac_address[3];
+	val[4] = context->mac_address[4];
+	val[5] = context->mac_address[5];
+
+	LOG_INF("Set mac to chip - MAC %02x:%02x:%02x:%02x:%02x:%02x", val[0], val[1], val[2],
+		val[3], val[4], val[5]);
+
+	// eth_dm9051_set_bank(dev, DM9051_REG_MACON1);
+
+	/* Set MARXEN to enable MAC to receive frames */
+	// eth_dm9051_read_reg(dev, DM9051_REG_MACON1, &data_macon);
+	// data_macon |= DM9051_BIT_MACON1_MARXEN | DM9051_BIT_MACON1_RXPAUS
+	//			  | DM9051_BIT_MACON1_TXPAUS;
+	// eth_dm9051_write_reg(dev, DM9051_REG_MACON1, data_macon);
+}
+
+#if 0
 static void eth_enc28j60_init_mac(const struct device *dev)
 {
 //	const struct eth_enc28j60_config *config = dev->config;
@@ -413,7 +439,7 @@ static struct net_if *get_iface(struct dm9051_runtime *ctx)
 
 static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 {
-	#if 0
+#if 0
 //	struct eth_enc28j60_runtime *context = dev->data;
 //	uint16_t tx_bufaddr = ENC28J60_TXSTART;
 //	uint16_t len = net_pkt_get_len(pkt);
@@ -491,7 +517,7 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 
 //		return -EIO;
 //	}
-	#endif
+#endif
 
 	LOG_DBG("%s: Tx successful", dev->name);
 
@@ -769,15 +795,79 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	}
 	context->iface_initialized = true;
 }
+#endif
+
+static void eth_dm9051_iface_init(struct net_if *iface)
+{
+	const struct device *dev = net_if_get_device(iface);
+	LOG_INF("%s: Link up", dev->name);
+}
+static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_type type,
+				 const struct ethernet_config *config)
+{
+	struct dm9051_runtime *context = dev->data;
+
+	/* Compile time check that the memcpy below won't overflow */
+	BUILD_ASSERT(sizeof(context->mac_address) <= sizeof(config->mac_address.addr),
+		     "DM9051 Runtime MAC address buffer too small");
+
+	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
+		memcpy(context->mac_address, config->mac_address.addr,
+		       sizeof(config->mac_address.addr));
+		eth_dm9051_init_mac(dev);
+
+		if (context->iface != NULL) {
+			net_if_set_link_addr(context->iface, context->mac_address,
+					     sizeof(context->mac_address), NET_LINK_ETHERNET);
+		}
+
+		LOG_INF("Set cfg - MAC %02x:%02x:%02x:%02x:%02x:%02x", context->mac_address[0],
+			context->mac_address[1], context->mac_address[2], context->mac_address[3],
+			context->mac_address[4], context->mac_address[5]);
+
+		return 0;
+	}
+	return -ENOTSUP;
+}
+
+static enum ethernet_hw_caps eth_dm9051_get_capabilities(const struct device *dev)
+{
+	enum ethernet_hw_caps dm9051_caps;
+	ARG_UNUSED(dev);
+	dm9051_caps = ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE;
+#ifdef CONFIG_NET_PROMISCUOUS_MODE
+	dm9051_caps |= ETHERNET_PROMISC_MODE;
+#endif
+
+#if CONFIG_ETH_DM9051_MULTICAST_FILTER
+	dm9051_caps |= ETHERNET_HW_FILTERING;
+#endif
+	return dm9051_caps;
+}
+
+static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
+{
+	LOG_DBG("%s: Tx successful", dev->name);
+
+	return 0;
+}
 
 static const struct ethernet_api api_funcs = {
-	.iface_api.init		= eth_dm9051_iface_init,
-	.set_config		= eth_dm9051_set_config,
-	.get_capabilities	= eth_dm9051_get_capabilities,
-	.send			= eth_dm9051_tx,
+	.iface_api.init = eth_dm9051_iface_init,
+	.set_config = eth_dm9051_set_config,
+	.get_capabilities = eth_dm9051_get_capabilities,
+	.send = eth_dm9051_tx,
 };
 
-static int eth_enc28j60_init(const struct device *dev)
+static int eth_dm9051_init(const struct device *dev)
+{
+	LOG_INF("%s: Initialized", dev->name);
+
+	return 0;
+}
+
+#if 0
+static int eth_dm9051_init(const struct device *dev)
 {
 	/*const struct eth_enc28j60_config *config = dev->config;
 	struct eth_enc28j60_runtime *context = dev->data;
@@ -842,10 +932,11 @@ static int eth_enc28j60_init(const struct device *dev)
 	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
 	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
 	eth_enc28j60_write_phy(dev, DM9051_NCR, NCR_RST);
+	*/
 
 	/* Enable Reception */
-	eth_enc28j60_set_eth_reg(dev, DM9051_NCR,
-				 NCR_RST);
+	//eth_enc28j60_set_eth_reg(dev, DM9051_NCR,
+	//			 NCR_RST);
 
 #if 0
 	k_thread_create(&context->thread, context->thread_stack,
@@ -860,26 +951,24 @@ static int eth_enc28j60_init(const struct device *dev)
 
 	return 0;
 }
+#endif
 
-#define ENC28J60_DEFINE(inst)                                                                      \
-	static struct eth_enc28j60_runtime eth_enc28j60_runtime_##inst = {                         \
+#define DM9051_DEFINE(inst)                                                                        \
+	static struct dm9051_runtime dm9051_runtime_##inst = {                                     \
 		.mac_address = DT_INST_PROP(inst, local_mac_address),                              \
-		.tx_rx_sem =                                                                       \
-			Z_SEM_INITIALIZER((eth_enc28j60_runtime_##inst).tx_rx_sem, 1, UINT_MAX),   \
-		.int_sem = Z_SEM_INITIALIZER((eth_enc28j60_runtime_##inst).int_sem, 0, UINT_MAX),  \
+		.tx_rx_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).tx_rx_sem, 1, UINT_MAX),    \
+		.int_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).int_sem, 0, UINT_MAX),        \
 	};                                                                                         \
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                     \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
-		.full_duplex = DT_INST_PROP(0, full_duplex),                                       \
-		.timeout = CONFIG_ETH_ENC28J60_TIMEOUT,                                            \
-		.hw_rx_filter = DT_INST_PROP_OR(inst, hw_rx_filter, ENC28J60_RECEIVE_FILTERS),     \
-		.random_mac = DT_INST_PROP(inst, zephyr_random_mac_address),                    \
-	};                                                                                         \
-                                                                                                   \
-	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_enc28j60_init, NULL, &eth_enc28j60_runtime_##inst, \
-				      &dm9051_config_##inst, CONFIG_ETH_INIT_PRIORITY,       \
-				      &api_funcs, NET_ETH_MTU);
+		/* .full_duplex = DT_INST_PROP(0, full_duplex),*/                                       \
+		.timeout = 100,                                            \
+	};          \
+                                                                                            \
+	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst,      \
+				      &dm9051_config_##inst, CONFIG_ETH_INIT_PRIORITY, &api_funcs, \
+				      NET_ETH_MTU);
 
-DT_INST_FOREACH_STATUS_OKAY(ENC28J60_DEFINE);
+DT_INST_FOREACH_STATUS_OKAY(DM9051_DEFINE);

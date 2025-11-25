@@ -33,15 +33,16 @@ static struct net_dhcpv4_option_callback dhcp_cb;
 static int interface_count = 0;
 
 /* 网络接口遍历回调函数 */
-static bool count_interfaces(struct net_if *iface, void *user_data)
+static void count_interfaces_proc(struct net_if *iface, void *user_data)
 {
 	int *count = (int *)user_data;
 	(*count)++;
-	LOG_INF("Found network interface %d: %s (index=%d)", 
+	#ifdef CONFIG_SOC_NRF54L15
+	LOG_INF("NRF54L15, Found network interface %d: %s (index=%d)", 
 		*count,
 		net_if_get_device(iface)->name,
 		net_if_get_by_iface(iface));
-	return false;
+	#endif
 }
 
 static void start_dhcpv4_client(struct net_if *iface, void *user_data)
@@ -156,7 +157,7 @@ int main(void)
 
 	/* 统计所有可用的网络接口 */
 	interface_count = 0;
-	net_if_foreach(count_interfaces, &interface_count);
+	net_if_foreach(count_interfaces_proc, &interface_count);
 	
 	if (interface_count == 0) {
 		LOG_ERR("No network interfaces available!");
