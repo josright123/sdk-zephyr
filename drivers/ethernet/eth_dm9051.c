@@ -255,12 +255,20 @@ static void dm9051_core_reset(const struct device *dev)
 static uint16_t dm9051_get_chipid(const struct device *dev)
 {
 	uint16_t id;
+	uint8_t pidh, pidl;
 
-	id = (dm9051_read_reg(dev, DM9051_PIDH) << 8) | dm9051_read_reg(dev, DM9051_PIDL);
+	pidh = dm9051_read_reg(dev, DM9051_PIDH);
+	pidl = dm9051_read_reg(dev, DM9051_PIDL);
+	id = (pidh << 8) | pidl;
+
+	/* Print raw register values for debugging */
+	printk("DEBUG: Chip ID registers - PIDH: 0x%02x, PIDL: 0x%02x, Combined: 0x%04x\n", pidh,
+	       pidl, id);
 
 	/* DM9051 returns 0x9000, normalize to 0x9051 */
 	if (id == 0x9000) {
 		id = 0x9051;
+		printk("DEBUG: Normalized chip ID from 0x9000 to 0x9051\n");
 	}
 
 	return id;
@@ -546,12 +554,17 @@ static int eth_dm9051_init(const struct device *dev)
 		return -ENODEV;
 	}
 
+	/* Print SPI configuration */
+	printk("INFO: %s: SPI frequency configured: %u Hz (%u MHz)\n", dev->name,
+	       config->spi.config.frequency, config->spi.config.frequency / 1000000);
+	LOG_INF("%s: SPI frequency: %u Hz", dev->name, config->spi.config.frequency);
+
 	/* Verify chip ID before reset */
 	chip_id = dm9051_get_chipid(dev);
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
 		/* Use both LOG_ERR and printk for maximum visibility */
-		LOG_ERR("%s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)", dev->name,
-			chip_id);
+		//		LOG_ERR("%s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)",
+		// dev->name, 			chip_id);
 		printk("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
 		       dev->name, chip_id);
 
