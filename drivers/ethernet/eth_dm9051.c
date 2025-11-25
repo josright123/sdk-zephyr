@@ -1,11 +1,11 @@
 /* DM9051 Stand-alone Ethernet Controller with SPI
  *
- * Copyright (c) 2025~2026 Davidom Semi-conductor Incorporation
+ * Copyright (c) 2025~2026 Davicom Semiconductor Incorporation
  *
  * SPDX-License-Identifier: Apache-2.0
  */
 
-#define DT_DRV_COMPAT davicom_dm9051 // to be operated
+#define DT_DRV_COMPAT davicom_dm9051
 
 #define LOG_MODULE_NAME eth_dm9051
 #define LOG_LEVEL       CONFIG_ETHERNET_LOG_LEVEL
@@ -25,750 +25,473 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <ethernet/eth_stats.h>
 
 #include "eth_dm9051_priv.h"
-#include "eth.h"
 
-// #define D10D24S 11
+/* DM9051 Constants */
+#define DM9051_PHY     (0x40)
+#define DM9051_PKT_RDY (0x01)
+#define PHY_ADV_REG    (0x04)
 
-//static int eth_enc28j60_soft_reset(const struct device *dev)
-//{
-//	const struct dm9051_config *config = dev->config;
-//	uint8_t buf[2] = {DM9051_NCR, 0xFF};
-//	const struct spi_buf tx_buf = {
-//		.buf = buf,
-//		.len = 1,
-//	};
-//	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
-//
-//	return spi_write_dt(&config->spi, &tx);
-//}
+/*******************************************************************************
+ * Hardware Abstraction Layer - SPI Operations
+ ******************************************************************************/
 
-#if 0
-static void eth_enc28j60_set_bank(const struct device *dev, uint16_t reg_addr)
+/**
+ * @brief SPI transfer single byte
+ * @param dev Device structure
+ * @param byte Byte to transmit
+ * @return Received byte
+ */
+static uint8_t dm9051_spi_xfer(const struct device *dev, uint8_t byte)
 {
 	const struct dm9051_config *config = dev->config;
-	uint8_t buf[2];
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 2
-	};
-	const struct spi_buf rx_buf = {
-		.buf = buf,
-		.len = 2
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
-	const struct spi_buf_set rx = {
-		.buffers = &rx_buf,
-		.count = 1
-	};
+	uint8_t rx_data;
+	struct spi_buf tx_buf = {.buf = &byte, .len = 1};
+	struct spi_buf rx_buf = {.buf = &rx_data, .len = 1};
+	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+	const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
 
-	buf[0] = OPC_REG_W | DM9051_NCR;
-	buf[1] = 0x0;
-
-	if (!spi_transceive_dt(&config->spi, &tx, &rx)) {
-		buf[0] = OPC_REG_W | DM9051_NCR;
-		buf[1] = (buf[1] & 0xFC) | ((reg_addr >> 8) & 0x03);
-
-		spi_write_dt(&config->spi, &tx);
-	} else {
-		LOG_DBG("%s: Failure while setting bank to 0x%04x", dev->name, reg_addr);
-	}
+	spi_transceive_dt(&config->spi, &tx, &rx);
+	return rx_data;
 }
 
-static void eth_enc28j60_write_reg(const struct device *dev,
-				   uint16_t reg_addr,
-				   uint8_t value)
+/**
+ * @brief Read single register from DM9051
+ * @param dev Device structure
+ * @param reg Register address
+ * @return Register value
+ */
+static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 {
-	/*const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[2];
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 2
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
+	const struct dm9051_config *config = dev->config;
+	uint8_t result;
 
-	buf[0] = ENC28J60_SPI_WCR | (reg_addr & 0xFF);
-	buf[1] = value;
+	/* CS low */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
-	spi_write_dt(&config->spi, &tx);*/
+	/* Send register address with read opcode */
+	dm9051_spi_xfer(dev, reg | OPC_REG_R);
+	/* Read data */
+	result = dm9051_spi_xfer(dev, 0);
+
+	/* CS high */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+
+	return result;
 }
 
-static void eth_enc28j60_read_reg(const struct device *dev, uint16_t reg_addr,
-				  uint8_t *value)
+/**
+ * @brief Write single register to DM9051
+ * @param dev Device structure
+ * @param reg Register address
+ * @param val Value to write
+ */
+static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 {
-	/*const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[3];
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 2
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
-	struct spi_buf rx_buf = {
-		.buf = buf,
-	};
-	const struct spi_buf_set rx = {
-		.buffers = &rx_buf,
-		.count = 1
-	};
-	uint8_t rx_size = 2U;
+	const struct dm9051_config *config = dev->config;
 
-	if (reg_addr & 0xF000) {
-		rx_size = 3U;
-	}
+	/* CS low */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
-	rx_buf.len = rx_size;
+	/* Send register address with write opcode */
+	dm9051_spi_xfer(dev, reg | OPC_REG_W);
+	/* Write data */
+	dm9051_spi_xfer(dev, val);
 
-	buf[0] = ENC28J60_SPI_RCR | (reg_addr & 0xFF);
-	buf[1] = 0x0;
-
-	if (!spi_transceive_dt(&config->spi, &tx, &rx)) {
-		*value = buf[rx_size - 1];
-	} else {
-		LOG_DBG("%s: Failure while reading register 0x%04x", dev->name, reg_addr);
-		*value = 0U;
-	}*/
+	/* CS high */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
-static void eth_enc28j60_set_eth_reg(const struct device *dev,
-				     uint16_t reg_addr,
-				     uint8_t value)
+/**
+ * @brief Read multiple bytes from DM9051 memory
+ * @param dev Device structure
+ * @param buf Buffer to store read data
+ * @param len Number of bytes to read
+ */
+static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len)
 {
-	/*const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[2];
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 2
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
+	const struct dm9051_config *config = dev->config;
 
-	buf[0] = ENC28J60_SPI_BFS | (reg_addr & 0xFF);
-	buf[1] = value;
+	/* CS low */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
-	spi_write_dt(&config->spi, &tx);*/
-}
+	/* Send memory read command */
+	dm9051_spi_xfer(dev, DM9051_MRCMD | OPC_REG_R);
 
-
-static void eth_enc28j60_clear_eth_reg(const struct device *dev,
-				       uint16_t reg_addr,
-				       uint8_t value)
-{
-}
-
-static void eth_enc28j60_write_mem(const struct device *dev,
-				   uint8_t *data_buffer,
-				   uint16_t buf_len)
-{
-	/*const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[1] = { ENC28J60_SPI_WBM };
-	struct spi_buf tx_buf[2] = {
-		{
-			.buf = buf,
-			.len = 1
-		},
-	};
-	const struct spi_buf_set tx = {
-		.buffers = tx_buf,
-		.count = 2
-	};
-	uint16_t num_segments;
-	uint16_t num_remaining;
-	int i;
-
-	num_segments = buf_len / MAX_BUFFER_LENGTH;
-	num_remaining = buf_len - MAX_BUFFER_LENGTH * num_segments;
-
-	for (i = 0; i < num_segments; i++, data_buffer += MAX_BUFFER_LENGTH) {
-		tx_buf[1].buf = data_buffer;
-		tx_buf[1].len = MAX_BUFFER_LENGTH;
-
-		if (spi_write_dt(&config->spi, &tx)) {
-			LOG_ERR("%s: Failed to write memory", dev->name);
-			return;
-		}
+	/* Read data */
+	for (uint16_t i = 0; i < len; i++) {
+		buf[i] = dm9051_spi_xfer(dev, 0);
 	}
 
-	if (num_remaining > 0) {
-		tx_buf[1].buf = data_buffer;
-		tx_buf[1].len = num_remaining;
-
-		if (spi_write_dt(&config->spi, &tx)) {
-			LOG_ERR("%s: Failed to write memory", dev->name);
-		}
-	}*/
+	/* CS high */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
-static void eth_enc28j60_read_mem(const struct device *dev,
-				  uint8_t *data_buffer,
-				  uint16_t buf_len)
+/**
+ * @brief Write multiple bytes to DM9051 memory
+ * @param dev Device structure
+ * @param buf Buffer containing data to write
+ * @param len Number of bytes to write
+ */
+static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint16_t len)
 {
-	/*const struct eth_enc28j60_config *config = dev->config;
-	uint8_t buf[1] = { ENC28J60_SPI_RBM };
-	const struct spi_buf tx_buf = {
-		.buf = buf,
-		.len = 1
-	};
-	const struct spi_buf_set tx = {
-		.buffers = &tx_buf,
-		.count = 1
-	};
-	struct spi_buf rx_buf[2] = {
-		{
-			.buf = NULL,
-			.len = 1
-		},
-	};
-	const struct spi_buf_set rx = {
-		.buffers = rx_buf,
-		.count = 2
-	};
-	uint16_t num_segments;
-	uint16_t num_remaining;
-	int i;
+	const struct dm9051_config *config = dev->config;
 
-	num_segments = buf_len / MAX_BUFFER_LENGTH;
-	num_remaining = buf_len - MAX_BUFFER_LENGTH * num_segments;
+	/* CS low */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
-	for (i = 0; i < num_segments; i++, data_buffer += MAX_BUFFER_LENGTH) {
+	/* Send memory write command */
+	dm9051_spi_xfer(dev, DM9051_MWCMD | OPC_REG_W);
 
-		rx_buf[1].buf = data_buffer;
-		rx_buf[1].len = MAX_BUFFER_LENGTH;
-
-		if (spi_transceive_dt(&config->spi, &tx, &rx)) {
-			LOG_ERR("%s: Failed to read memory", dev->name);
-			return;
-		}
+	/* Write data */
+	for (uint16_t i = 0; i < len; i++) {
+		dm9051_spi_xfer(dev, buf[i]);
 	}
 
-	if (num_remaining > 0) {
-		rx_buf[1].buf = data_buffer;
-		rx_buf[1].len = num_remaining;
-
-		if (spi_transceive_dt(&config->spi, &tx, &rx)) {
-			LOG_ERR("%s: Failed to read memory", dev->name);
-		}
-	}*/
+	/* CS high */
+	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
-static void eth_enc28j60_write_phy(const struct device *dev,
-				   uint16_t reg_addr,
-				   int16_t data)
+/*******************************************************************************
+ * PHY Operations
+ ******************************************************************************/
+
+/**
+ * @brief Read PHY register
+ * @param dev Device structure
+ * @param reg PHY register address
+ * @return PHY register value
+ */
+static uint16_t dm9051_phy_read(const struct device *dev, uint16_t reg)
 {
+	uint16_t value;
+	int timeout = 500;
+
+	dm9051_write_reg(dev, DM9051_EPAR, DM9051_PHY | reg);
+	dm9051_write_reg(dev, DM9051_EPCR, 0x0c);
+	k_busy_wait(1);
+
+	while ((dm9051_read_reg(dev, DM9051_EPCR) & 0x01) && timeout--) {
+		k_busy_wait(1);
+	}
+
+	dm9051_write_reg(dev, DM9051_EPCR, 0x00);
+	value = (dm9051_read_reg(dev, DM9051_EPDRH) << 8) | dm9051_read_reg(dev, DM9051_EPDRL);
+
+	return value;
 }
 
-static void eth_enc28j60_read_phy(const struct device *dev,
-				   uint16_t reg_addr,
-				   int16_t *data)
+/**
+ * @brief Write PHY register
+ * @param dev Device structure
+ * @param reg PHY register address
+ * @param value Value to write
+ */
+static void dm9051_phy_write(const struct device *dev, uint16_t reg, uint16_t value)
 {
+	int timeout = 500;
+
+	dm9051_write_reg(dev, DM9051_EPAR, DM9051_PHY | reg);
+	dm9051_write_reg(dev, DM9051_EPDRL, value & 0xff);
+	dm9051_write_reg(dev, DM9051_EPDRH, (value >> 8) & 0xff);
+	dm9051_write_reg(dev, DM9051_EPCR, 0x0a);
+	k_busy_wait(1);
+
+	while ((dm9051_read_reg(dev, DM9051_EPCR) & 0x01) && timeout--) {
+		k_busy_wait(1);
+	}
+
+	dm9051_write_reg(dev, DM9051_EPCR, 0x00);
 }
 
-/*static void eth_enc28j60_gpio_callback(const struct device *dev,
-				       struct gpio_callback *cb,
-				       uint32_t pins)
+/*******************************************************************************
+ * Core Driver Functions
+ ******************************************************************************/
+
+/**
+ * @brief Perform core reset of DM9051
+ * @param dev Device structure
+ */
+static void dm9051_core_reset(const struct device *dev)
 {
-	struct eth_enc28j60_runtime *context =
-		CONTAINER_OF(cb, struct eth_enc28j60_runtime, gpio_cb);
+	/* Power on PHY */
+	dm9051_write_reg(dev, DM9051_GPR, 0x00);
+	k_msleep(25);
 
-	k_sem_give(&context->int_sem);
-}*/
+	/* NCR reset */
+	dm9051_write_reg(dev, DM9051_NCR, DM9051_NCR_RESET);
+	k_msleep(5);
 
-static int eth_enc28j60_init_buffers(const struct device *dev)
-{
-//	uint8_t data_estat;
-//	const struct eth_enc28j60_config *config = dev->config;
+	/* Wait for reset completion */
+	int timeout = 100;
+	while ((dm9051_read_reg(dev, DM9051_NCR) & DM9051_NCR_RESET) && timeout--) {
+		k_msleep(1);
+	}
 
-//	/* Reception buffers initialization */
-//	eth_enc28j60_set_bank(dev, ENC28J60_REG_ERXSTL);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXSTL,
-//			       ENC28J60_RXSTART & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXSTH,
-//			       ENC28J60_RXSTART >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXRDPTL,
-//			       ENC28J60_RXSTART & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXRDPTH,
-//			       ENC28J60_RXSTART >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXNDL,
-//			       ENC28J60_RXEND & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXNDH,
-//			       ENC28J60_RXEND >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXSTL,
-//			       ENC28J60_TXSTART & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXSTH,
-//			       ENC28J60_TXSTART >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXNDL,
-//			       ENC28J60_TXEND & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXNDH,
-//			       ENC28J60_TXEND >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERDPTL,
-//			       ENC28J60_RXSTART & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERDPTH,
-//			       ENC28J60_RXSTART >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_EWRPTL,
-//			       ENC28J60_TXSTART & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_EWRPTH,
-//			       ENC28J60_TXSTART >> 8);
+	/* Software defaults */
+	dm9051_write_reg(dev, DM9051_MBNDRY, MBNDRY_BYTE);
+	dm9051_write_reg(dev, DM9051_PPCR, PPCR_PAUSE_COUNT);
+	dm9051_write_reg(dev, DM9051_LMCR, LMCR_MODE1);
+	dm9051_write_reg(dev, DM9051_INTR, INTR_ACTIVE_LOW);
 
-//	eth_enc28j60_set_bank(dev, ENC28J60_REG_ERXFCON);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ERXFCON,
-//			       config->hw_rx_filter);
-
-	/* Waiting for OST */
-//	/* 32 bits for this timer should be fine, rollover not an issue with initialisation */
-//	uint32_t start_wait = (uint32_t) k_uptime_get();
-//	do {
-//		/* If the CLK isn't ready don't wait forever */
-//		if ((k_uptime_get_32() - start_wait) > CONFIG_ETH_ENC28J60_CLKRDY_INIT_WAIT_MS) {
-//			LOG_ERR("OST wait timed out");
-//			return -ETIMEDOUT;
-//		}
-//		/* wait 10.24 useconds */
-//		k_busy_wait(D10D24S);
-//		eth_enc28j60_read_reg(dev, ENC28J60_REG_ESTAT, &data_estat);
-//	} while (!(data_estat & ENC28J60_BIT_ESTAT_CLKRDY));
-
-	return 0;
-}
+#ifdef CONFIG_ETH_DM9051_TX_CHECKSUM_OFFLOAD
+	/* Enable TX checksum offload */
+	dm9051_write_reg(dev, DM9051_CSCR,
+			 TCSCR_IPCS_ENABLE | TCSCR_UDPCS_ENABLE | TCSCR_TCPCS_ENABLE);
 #endif
 
-static void eth_dm9051_init_mac(const struct device *dev)
-{
-	// const struct eth_dm9051_config *config = dev->config;
-	struct dm9051_runtime *context = dev->data;
-	// uint8_t data_macon;
-	int val[6];
+#ifdef CONFIG_ETH_DM9051_RX_CHECKSUM_OFFLOAD
+	/* Enable RX checksum offload */
+	dm9051_write_reg(dev, DM9051_RCSSR, RCSSR_RCSEN | RCSSR_DCSE);
+#endif
 
-	val[0] = context->mac_address[0];
-	val[1] = context->mac_address[1];
-	val[2] = context->mac_address[2];
-	val[3] = context->mac_address[3];
-	val[4] = context->mac_address[4];
-	val[5] = context->mac_address[5];
-
-	LOG_INF("Set mac to chip - MAC %02x:%02x:%02x:%02x:%02x:%02x", val[0], val[1], val[2],
-		val[3], val[4], val[5]);
-
-	// eth_dm9051_set_bank(dev, DM9051_REG_MACON1);
-
-	/* Set MARXEN to enable MAC to receive frames */
-	// eth_dm9051_read_reg(dev, DM9051_REG_MACON1, &data_macon);
-	// data_macon |= DM9051_BIT_MACON1_MARXEN | DM9051_BIT_MACON1_RXPAUS
-	//			  | DM9051_BIT_MACON1_TXPAUS;
-	// eth_dm9051_write_reg(dev, DM9051_REG_MACON1, data_macon);
+	LOG_DBG("%s: Core reset complete", dev->name);
 }
 
-#if 0
-static void eth_enc28j60_init_mac(const struct device *dev)
+/**
+ * @brief Get chip ID
+ * @param dev Device structure
+ * @return Chip ID (0x9051 or 0x9058 for DM9051A)
+ */
+static uint16_t dm9051_get_chipid(const struct device *dev)
 {
-//	const struct eth_enc28j60_config *config = dev->config;
-//	struct eth_enc28j60_runtime *context = dev->data;
-//	uint8_t data_macon;
+	uint16_t id;
 
-//	eth_enc28j60_set_bank(dev, ENC28J60_REG_MACON1);
+	id = (dm9051_read_reg(dev, DM9051_PIDH) << 8) | dm9051_read_reg(dev, DM9051_PIDL);
 
-//	/* Set MARXEN to enable MAC to receive frames */
-//	eth_enc28j60_read_reg(dev, ENC28J60_REG_MACON1, &data_macon);
-//	data_macon |= ENC28J60_BIT_MACON1_MARXEN | ENC28J60_BIT_MACON1_RXPAUS
-//		      | ENC28J60_BIT_MACON1_TXPAUS;
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MACON1, data_macon);
+	/* DM9051 returns 0x9000, normalize to 0x9051 */
+	if (id == 0x9000) {
+		id = 0x9051;
+	}
 
-//	data_macon = ENC28J60_MAC_CONFIG;
-
-//	if (config->full_duplex) {
-//		data_macon |= ENC28J60_BIT_MACON3_FULDPX;
-//	}
-
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MACON3, data_macon);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAIPGL, ENC28J60_MAC_NBBIPGL);
-
-//	if (config->full_duplex) {
-//		eth_enc28j60_write_reg(dev, ENC28J60_REG_MAIPGH,
-//				       ENC28J60_MAC_NBBIPGH);
-//		eth_enc28j60_write_reg(dev, ENC28J60_REG_MABBIPG,
-//				       ENC28J60_MAC_BBIPG_FD);
-//	} else {
-//		eth_enc28j60_write_reg(dev, ENC28J60_REG_MABBIPG,
-//				       ENC28J60_MAC_BBIPG_HD);
-//		eth_enc28j60_write_reg(dev, ENC28J60_REG_MACON4, 1 << 6);
-//	}
-
-//	/* Configure MAC address */
-//	eth_enc28j60_set_bank(dev, ENC28J60_REG_MAADR1);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR6,
-//			       context->mac_address[5]);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR5,
-//			       context->mac_address[4]);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR4,
-//			       context->mac_address[3]);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR3,
-//			       context->mac_address[2]);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR2,
-//			       context->mac_address[1]);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_MAADR1,
-//			       context->mac_address[0]);
+	return id;
 }
 
-static void eth_enc28j60_init_phy(const struct device *dev)
+/**
+ * @brief Set MAC address
+ * @param dev Device structure
+ * @param mac MAC address array (6 bytes)
+ */
+static void dm9051_set_mac_address(const struct device *dev, const uint8_t *mac)
 {
-//	const struct eth_enc28j60_config *config = dev->config;
+	for (int i = 0; i < 6; i++) {
+		dm9051_write_reg(dev, DM9051_PAR + i, mac[i]);
+	}
 
-//	if (config->full_duplex) {
-//		eth_enc28j60_write_phy(dev, ENC28J60_PHY_PHCON1,
-//				       ENC28J60_BIT_PHCON1_PDPXMD);
-//		eth_enc28j60_write_phy(dev, ENC28J60_PHY_PHCON2, 0x0);
-//	} else {
-//		eth_enc28j60_write_phy(dev, ENC28J60_PHY_PHCON1, 0x0);
-//		eth_enc28j60_write_phy(dev, ENC28J60_PHY_PHCON2,
-//				       ENC28J60_BIT_PHCON2_HDLDIS);
-//	}
+	LOG_INF("%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2], mac[3],
+		mac[4], mac[5]);
 }
 
-static struct net_if *get_iface(struct dm9051_runtime *ctx)
+/**
+ * @brief Configure multicast address registers
+ * @param dev Device structure
+ */
+static void dm9051_set_multicast(const struct device *dev)
 {
-	return ctx->iface;
+	for (int i = 0; i < 8; i++) {
+		dm9051_write_reg(dev, DM9051_MAR + i, (i == 7) ? 0x80 : 0x00);
+	}
 }
 
+/**
+ * @brief Configure receive settings
+ * @param dev Device structure
+ */
+static void dm9051_set_receive(const struct device *dev)
+{
+	/* Configure multicast addresses */
+	dm9051_set_multicast(dev);
+
+	/* Configure flow control */
+	dm9051_write_reg(dev, DM9051_FCR, FCR_DEFAULT);
+	dm9051_phy_write(dev, PHY_ADV_REG, 0x0400 | 0x01e1);
+
+	/* Configure interrupts */
+#ifdef DMPLUG_INT
+	dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
+#else
+	dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
+#endif
+
+	/* Enable receiver */
+	dm9051_write_reg(dev, DM9051_RCR, RCR_DEFAULT | RCR_RXEN);
+
+	LOG_DBG("%s: Receive configured", dev->name);
+}
+
+/*******************************************************************************
+ * Packet Transmission
+ ******************************************************************************/
+
+/**
+ * @brief Transmit packet
+ * @param dev Device structure
+ * @param pkt Network packet
+ * @return 0 on success, negative errno on failure
+ */
 static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 {
-#if 0
-//	struct eth_enc28j60_runtime *context = dev->data;
-//	uint16_t tx_bufaddr = ENC28J60_TXSTART;
-//	uint16_t len = net_pkt_get_len(pkt);
-//	uint8_t per_packet_control;
-//	uint16_t tx_bufaddr_end;
-//	struct net_buf *frag;
-//	uint8_t tx_end;
-
-//	LOG_DBG("%s: pkt %p (len %u)", dev->name, pkt, len);
-
-//	k_sem_take(&context->tx_rx_sem, K_FOREVER);
-
-//	/* Latest errata sheet: DS80349C
-//	* always reset transmit logic (Errata Issue 12)
-//	* the Microchip TCP/IP stack implementation used to first check
-//	* whether TXERIF is set and only then reset the transmit logic
-//	* but this has been changed in later versions; possibly they
-//	* have a reason for this; they don't mention this in the errata
-//	* sheet
-//	*/
-//	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_ECON1,
-//				 ENC28J60_BIT_ECON1_TXRST);
-//	eth_enc28j60_clear_eth_reg(dev, ENC28J60_REG_ECON1,
-//				   ENC28J60_BIT_ECON1_TXRST);
-
-//	/* Write the buffer content into the transmission buffer */
-//	eth_enc28j60_set_bank(dev, ENC28J60_REG_ETXSTL);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_EWRPTL, tx_bufaddr & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_EWRPTH, tx_bufaddr >> 8);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXSTL, tx_bufaddr & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXSTH, tx_bufaddr >> 8);
-
-//	/* Write the data into the buffer */
-//	per_packet_control = ENC28J60_PPCTL_BYTE;
-//	eth_enc28j60_write_mem(dev, &per_packet_control, 1);
-
-//	for (frag = pkt->frags; frag; frag = frag->frags) {
-//		eth_enc28j60_write_mem(dev, frag->data, frag->len);
-//	}
-
-//	tx_bufaddr_end = tx_bufaddr + len;
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXNDL,
-//			       tx_bufaddr_end & 0xFF);
-//	eth_enc28j60_write_reg(dev, ENC28J60_REG_ETXNDH, tx_bufaddr_end >> 8);
-
-//	/* Signal ENC28J60 to send the buffer */
-//	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_ECON1,
-//				 ENC28J60_BIT_ECON1_TXRTS);
-
-//	do {
-//		/* wait 10.24 useconds */
-//		k_busy_wait(D10D24S);
-//		eth_enc28j60_read_reg(dev, ENC28J60_REG_EIR, &tx_end);
-//		tx_end &= ENC28J60_BIT_EIR_TXIF;
-//	} while (!tx_end);
-
-
-//	eth_enc28j60_read_reg(dev, ENC28J60_REG_ESTAT, &tx_end);
-
-//	k_sem_give(&context->tx_rx_sem);
-
-//	if (tx_end & ENC28J60_BIT_ESTAT_TXABRT) {
-//		LOG_ERR("%s: TX failed!", dev->name);
-
-//		/* 12.1.3 "TRANSMIT ERROR INTERRUPT FLAG (TXERIF)" states:
-//		 *
-//		 * "After determining the problem and solution, the
-//		 * host controller should clear the LATECOL (if set) and
-//		 * TXABRT bits so that future aborts can be detected
-//		 * accurately."
-//		 */
-//		eth_enc28j60_clear_eth_reg(dev, ENC28J60_REG_ESTAT,
-//					   ENC28J60_BIT_ESTAT_TXABRT
-//					   | ENC28J60_BIT_ESTAT_LATECOL);
-
-//		return -EIO;
-//	}
-#endif
-
-	LOG_DBG("%s: Tx successful", dev->name);
-
-	return 0;
-}
-
-static void enc28j60_read_packet(const struct device *dev, uint16_t frm_len)
-{
-	const struct dm9051_config *config = dev->config;
 	struct dm9051_runtime *context = dev->data;
-	struct net_buf *pkt_buf;
-	struct net_pkt *pkt;
-	uint16_t lengthfr;
-	uint8_t dummy[4];
+	uint16_t len = net_pkt_get_len(pkt);
+	struct net_buf *frag;
+	int timeout = 500;
 
-	/* Get the frame from the buffer */
-	pkt = net_pkt_rx_alloc_with_buffer(get_iface(context), frm_len,
-					   AF_UNSPEC, 0, K_MSEC(config->timeout));
-	if (!pkt) {
-		LOG_ERR("%s: Could not allocate rx buffer", dev->name);
-		eth_stats_update_errors_rx(get_iface(context));
-		return;
-	}
-
-	pkt_buf = pkt->buffer;
-	lengthfr = frm_len;
-
-	do {
-		size_t frag_len;
-		uint8_t *data_ptr;
-		size_t spi_frame_len;
-
-		data_ptr = pkt_buf->data;
-
-		/* Review the space available for the new frag */
-		frag_len = net_buf_tailroom(pkt_buf);
-
-		if (frm_len > frag_len) {
-			spi_frame_len = frag_len;
-		} else {
-			spi_frame_len = frm_len;
-		}
-
-		eth_enc28j60_read_mem(dev, data_ptr, spi_frame_len);
-
-		net_buf_add(pkt_buf, spi_frame_len);
-
-		/* One fragment has been written via SPI */
-		frm_len -= spi_frame_len;
-		pkt_buf = pkt_buf->frags;
-	} while (frm_len > 0);
-
-	/* Let's pop the useless CRC */
-	eth_enc28j60_read_mem(dev, dummy, 4);
-
-	/* Pops one padding byte from spi circular buffer
-	 * introduced by the device when the frame length is odd
-	 */
-	if (lengthfr & 0x01) {
-		eth_enc28j60_read_mem(dev, dummy, 1);
-	}
-
-	net_pkt_set_iface(pkt, context->iface);
-
-	/* Feed buffer frame to IP stack */
-	LOG_DBG("%s: Received packet of length %u", dev->name, lengthfr);
-	if (net_recv_data(net_pkt_iface(pkt), pkt) < 0) {
-		net_pkt_unref(pkt);
-	}
-}
-
-static int eth_enc28j60_rx(const struct device *dev)
-{
-	struct dm9051_runtime *context = dev->data;
-	uint8_t counter;
-
-	/* Errata 6. The Receive Packet Pending Interrupt Flag (EIR.PKTIF)
-	 * does not reliably/accurately report the status of pending packet.
-	 * Use EPKTCNT register instead.
-	*/
-	eth_enc28j60_set_bank(dev, DM9051_NCR);
-	eth_enc28j60_read_reg(dev, DM9051_NCR, &counter);
-	if (!counter) {
-		return 0;
-	}
+	LOG_DBG("%s: TX packet len=%u", dev->name, len);
 
 	k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
-	do {
-		uint16_t frm_len = 0U;
-		uint8_t info[4];
-		uint16_t next_packet;
-		uint8_t rdptl = 0U;
-		uint8_t rdpth = 0U;
+	/* Set packet length */
+	dm9051_write_reg(dev, DM9051_TXPLL, len & 0xff);
+	dm9051_write_reg(dev, DM9051_TXPLH, (len >> 8) & 0xff);
 
-		/* remove read fifo address to packet header address */
-		eth_enc28j60_set_bank(dev, DM9051_NCR);
-		eth_enc28j60_read_reg(dev, DM9051_NCR, &rdptl);
-		eth_enc28j60_read_reg(dev, DM9051_NCR, &rdpth);
-		eth_enc28j60_write_reg(dev, DM9051_NCR, rdptl);
-		eth_enc28j60_write_reg(dev, DM9051_NCR, rdpth);
+	/* Write packet data */
+	for (frag = pkt->frags; frag; frag = frag->frags) {
+		dm9051_write_mem(dev, frag->data, frag->len);
+	}
 
-		/* Read address for next packet */
-		eth_enc28j60_read_mem(dev, info, 2);
-		next_packet = info[0] | (uint16_t)info[1] << 8;
+	/* Trigger transmission */
+	dm9051_write_reg(dev, DM9051_TCR, TCR_TXREQ);
 
-		/* Errata 14. Even values in ERXRDPT
-		 * may corrupt receive buffer.
-		 No need adjust next packet
-		if (next_packet == 0) {
-			next_packet = ENC28J60_RXEND;
-		} else if (!(next_packet & 0x01)) {
-			next_packet--;
-		}*/
-
-		/* Read reception status vector */
-		eth_enc28j60_read_mem(dev, info, 4);
-
-		/* Get the frame length from the rx status vector,
-		 * minus CRC size at the end which is always present
-		 */
-		frm_len = sys_get_le16(info) - 4;
-
-		enc28j60_read_packet(dev, frm_len);
-
-		/* Free buffer memory and decrement rx counter */
-		eth_enc28j60_set_bank(dev, DM9051_NCR);
-		eth_enc28j60_write_reg(dev, DM9051_NCR, next_packet & 0xFF);
-		eth_enc28j60_write_reg(dev, DM9051_NCR, next_packet >> 8);
-		eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
-
-		/* Check if there are frames to clean from the buffer */
-		eth_enc28j60_set_bank(dev, DM9051_NCR);
-		eth_enc28j60_read_reg(dev, DM9051_NCR, &counter);
-	} while (counter);
+	/* Wait for completion with timeout */
+	while (timeout--) {
+		if (!(dm9051_read_reg(dev, DM9051_TCR) & TCR_TXREQ)) {
+			break;
+		}
+		k_busy_wait(1);
+	}
 
 	k_sem_give(&context->tx_rx_sem);
 
-	/* Clear a potential Receive Error Interrupt Flag bit (RX buffer full).
-	 * PKTIF was automatically cleared in eth_enc28j60_rx() when EPKTCNT
-	 * reached zero, so no need to clear it.
-	 */
-	eth_enc28j60_clear_eth_reg(dev, DM9051_NCR, NCR_RST);
+	if (timeout == 0) {
+		LOG_ERR("%s: TX timeout", dev->name);
+		return -ETIMEDOUT;
+	}
 
+	LOG_DBG("%s: TX successful", dev->name);
 	return 0;
 }
 
-static void eth_enc28j60_rx_thread(void *p1, void *p2, void *p3)
+/*******************************************************************************
+ * Packet Reception
+ ******************************************************************************/
+
+/**
+ * @brief Check if RX packet is ready
+ * @param dev Device structure
+ * @return true if packet ready, false otherwise
+ */
+static bool dm9051_rx_ready(const struct device *dev)
 {
-	ARG_UNUSED(p2);
-	ARG_UNUSED(p3);
+	uint8_t rxbyte;
 
-	const struct device *dev = p1;
-	struct dm9051_runtime *context = dev->data;
-	uint8_t int_stat;
+	/* Read RX byte twice (dummy read first) */
+	rxbyte = dm9051_read_reg(dev, DM9051_MRCMDX);
+	rxbyte = dm9051_read_reg(dev, DM9051_MRCMDX);
 
-	while (true) {
-		k_sem_take(&context->int_sem, K_FOREVER);
-
-		/* Disable interrupts during processing, otherwise there's a small race
-		 * window where we can miss one!
-		 */
-		eth_enc28j60_clear_eth_reg(dev, DM9051_NCR, NCR_RST);
-
-		eth_enc28j60_read_reg(dev, DM9051_NCR, &int_stat);
-		if (int_stat & NCR_RST) {
-			uint16_t nstat;
-			/* Clear link change interrupt flag by NSTAT reg read */
-			eth_enc28j60_read_reg(dev, DM9051_NCR, &nstat);
-			if (nstat & NCR_RST) {
-				LOG_INF("%s: Link up", dev->name);
-				/* We may have been interrupted before L2 init complete
-				 * If so flag that the carrier should be set on in init
-				 */
-				if (context->iface_initialized) {
-					net_eth_carrier_on(context->iface);
-				} else {
-					context->iface_carrier_on_init = true;
-				}
-			} else {
-				LOG_INF("%s: Link down", dev->name);
-
-				if (context->iface_initialized) {
-					net_eth_carrier_off(context->iface);
-				}
-			}
-		}
-
-		/* We cannot rely on the PKTIF flag because of errata 6. Call
-		 * eth_enc28j60_rx() unconditionally. It will check EPKTCNT instead.
-		 */
-		eth_enc28j60_rx(dev);
-
-		/* Now that the IRQ line was released, enable interrupts back */
-		eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
-	}
+	return (rxbyte & 0x01) == DM9051_PKT_RDY;
 }
+
+/**
+ * @brief Receive packet
+ * @param dev Device structure
+ * @return 0 on success, negative errno on failure
+ */
+static int dm9051_rx_packet(const struct device *dev)
+{
+	const struct dm9051_config *config = dev->config;
+	struct dm9051_runtime *context = dev->data;
+	uint8_t header[4];
+	uint16_t rx_len;
+	uint8_t rx_status;
+	struct net_pkt *pkt;
+
+	if (!dm9051_rx_ready(dev)) {
+		return 0;
+	}
+
+	/* Read packet header */
+	dm9051_read_mem(dev, header, 4);
+	dm9051_write_reg(dev, DM9051_ISR, 0x80);
+
+	rx_status = header[1];
+	rx_len = header[2] | (header[3] << 8);
+
+	/* Validate packet */
+	if (rx_status & RSR_ERR_BITS) {
+		LOG_ERR("%s: RX error status=0x%02x", dev->name, rx_status);
+		return -EIO;
+	}
+
+	if (rx_len > NET_ETH_MTU + 4) {
+		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
+		return -EINVAL;
+	}
+
+	/* Allocate packet buffer */
+	pkt = net_pkt_rx_alloc_with_buffer(context->iface, rx_len, AF_UNSPEC, 0,
+					   K_MSEC(config->timeout));
+	if (!pkt) {
+		LOG_ERR("%s: Failed to allocate RX buffer", dev->name);
+		eth_stats_update_errors_rx(context->iface);
+		return -ENOMEM;
+	}
+
+	/* Read packet data */
+	dm9051_read_mem(dev, net_pkt_data(pkt), rx_len);
+	dm9051_write_reg(dev, DM9051_ISR, 0x80);
+
+	net_pkt_set_iface(pkt, context->iface);
+
+	/* Feed to network stack */
+	if (net_recv_data(context->iface, pkt) < 0) {
+		net_pkt_unref(pkt);
+		return -EIO;
+	}
+
+	LOG_DBG("%s: RX packet len=%u", dev->name, rx_len);
+	return 0;
+}
+
+/*******************************************************************************
+ * Ethernet API Functions
+ ******************************************************************************/
 
 static enum ethernet_hw_caps eth_dm9051_get_capabilities(const struct device *dev)
 {
 	enum ethernet_hw_caps dm9051_caps;
+
 	ARG_UNUSED(dev);
 
-//	return ETHERNET_LINK_10BASE
-//#if defined(CONFIG_NET_VLAN)
-//		| ETHERNET_HW_VLAN
-//#endif
-//		;
 	dm9051_caps = ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE;
+
 #ifdef CONFIG_NET_PROMISCUOUS_MODE
-	dm9051_caps |=  ETHERNET_PROMISC_MODE;
+	dm9051_caps |= ETHERNET_PROMISC_MODE;
 #endif
 
-#if CONFIG_ETH_DM9051_MULTICAST_FILTER
-	dm9051_caps |=  ETHERNET_HW_FILTERING;
+#ifdef CONFIG_ETH_DM9051_MULTICAST_FILTER
+	dm9051_caps |= ETHERNET_HW_FILTERING;
 #endif
+
 	return dm9051_caps;
 }
 
-static int eth_dm9051_set_config(const struct device *dev,
-				   enum ethernet_config_type type,
-				   const struct ethernet_config *config)
+static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_type type,
+				 const struct ethernet_config *config)
 {
 	struct dm9051_runtime *context = dev->data;
 
-	/* Compile time check that the memcpy below won't overflow */
-	BUILD_ASSERT(sizeof(context->mac_address) <= sizeof(config->mac_address.addr),
-		     "DM9051 Runtime MAC address buffer too small");
-
-	LOG_INF("%s: dm9051_set_config", dev->name); //LOG_DBG
-
 	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
-//		memcpy(context->mac_address, config->mac_address.addr,
-//		       sizeof(config->mac_address.addr));
-//		eth_enc28j60_init_mac(dev);
+		memcpy(context->mac_address, config->mac_address.addr,
+		       sizeof(context->mac_address));
+		dm9051_set_mac_address(dev, context->mac_address);
 
-//		if (context->iface != NULL) {
-//			net_if_set_link_addr(context->iface, context->mac_address,
-//					     sizeof(context->mac_address),
-//					     NET_LINK_ETHERNET);
-//		}
-
-		LOG_INF("Set cfg - MAC %02x:%02x:%02x:%02x:%02x:%02x",
-			context->mac_address[0], context->mac_address[1],
-			context->mac_address[2], context->mac_address[3],
-			context->mac_address[4], context->mac_address[5]);
+		if (context->iface != NULL) {
+			net_if_set_link_addr(context->iface, context->mac_address,
+					     sizeof(context->mac_address), NET_LINK_ETHERNET);
+		}
 
 		return 0;
 	}
 
-	/* Only mac address config supported */
 	return -ENOTSUP;
 }
 
@@ -777,8 +500,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	const struct device *dev = net_if_get_device(iface);
 	struct dm9051_runtime *context = dev->data;
 
-	net_if_set_link_addr(iface, context->mac_address,
-			     sizeof(context->mac_address),
+	net_if_set_link_addr(iface, context->mac_address, sizeof(context->mac_address),
 			     NET_LINK_ETHERNET);
 
 	if (context->iface == NULL) {
@@ -787,69 +509,16 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 
 	ethernet_init(iface);
 
-	/* The device may have already interrupted us to flag link UP */
+	/* Set carrier status */
 	if (context->iface_carrier_on_init) {
 		net_if_carrier_on(iface);
 	} else {
 		net_if_carrier_off(iface);
 	}
+
 	context->iface_initialized = true;
-}
-#endif
 
-static void eth_dm9051_iface_init(struct net_if *iface)
-{
-	const struct device *dev = net_if_get_device(iface);
-	LOG_INF("%s: Link up", dev->name);
-}
-static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_type type,
-				 const struct ethernet_config *config)
-{
-	struct dm9051_runtime *context = dev->data;
-
-	/* Compile time check that the memcpy below won't overflow */
-	BUILD_ASSERT(sizeof(context->mac_address) <= sizeof(config->mac_address.addr),
-		     "DM9051 Runtime MAC address buffer too small");
-
-	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
-		memcpy(context->mac_address, config->mac_address.addr,
-		       sizeof(config->mac_address.addr));
-		eth_dm9051_init_mac(dev);
-
-		if (context->iface != NULL) {
-			net_if_set_link_addr(context->iface, context->mac_address,
-					     sizeof(context->mac_address), NET_LINK_ETHERNET);
-		}
-
-		LOG_INF("Set cfg - MAC %02x:%02x:%02x:%02x:%02x:%02x", context->mac_address[0],
-			context->mac_address[1], context->mac_address[2], context->mac_address[3],
-			context->mac_address[4], context->mac_address[5]);
-
-		return 0;
-	}
-	return -ENOTSUP;
-}
-
-static enum ethernet_hw_caps eth_dm9051_get_capabilities(const struct device *dev)
-{
-	enum ethernet_hw_caps dm9051_caps;
-	ARG_UNUSED(dev);
-	dm9051_caps = ETHERNET_LINK_10BASE | ETHERNET_LINK_100BASE;
-#ifdef CONFIG_NET_PROMISCUOUS_MODE
-	dm9051_caps |= ETHERNET_PROMISC_MODE;
-#endif
-
-#if CONFIG_ETH_DM9051_MULTICAST_FILTER
-	dm9051_caps |= ETHERNET_HW_FILTERING;
-#endif
-	return dm9051_caps;
-}
-
-static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
-{
-	LOG_DBG("%s: Tx successful", dev->name);
-
-	return 0;
+	LOG_INF("%s: Interface initialized", dev->name);
 }
 
 static const struct ethernet_api api_funcs = {
@@ -859,99 +528,63 @@ static const struct ethernet_api api_funcs = {
 	.send = eth_dm9051_tx,
 };
 
+/*******************************************************************************
+ * Device Initialization
+ ******************************************************************************/
+
 static int eth_dm9051_init(const struct device *dev)
 {
-	LOG_INF("%s: Initialized", dev->name);
+	const struct dm9051_config *config = dev->config;
+	struct dm9051_runtime *context = dev->data;
+	uint16_t chip_id;
 
-	return 0;
-}
+	LOG_INF("%s: Initializing DM9051", dev->name);
 
-#if 0
-static int eth_dm9051_init(const struct device *dev)
-{
-	/*const struct eth_enc28j60_config *config = dev->config;
-	struct eth_enc28j60_runtime *context = dev->data;
-
-
+	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
-		LOG_ERR("%s: SPI master port %s not ready", dev->name, config->spi.bus->name);
-		return -EINVAL;
+		LOG_ERR("%s: SPI not ready", dev->name);
+		return -ENODEV;
 	}
 
+	/* Verify chip ID before reset */
+	chip_id = dm9051_get_chipid(dev);
+	if (chip_id != 0x9051 && chip_id != 0x9058) {
+		/* Use both LOG_ERR and printk for maximum visibility */
+		LOG_ERR("%s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)", dev->name,
+			chip_id);
+		printk("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
+		       dev->name, chip_id);
 
-	if (!gpio_is_ready_dt(&config->interrupt)) {
-		LOG_ERR("%s: GPIO port %s not ready", dev->name, config->interrupt.port->name);
-		return -EINVAL;
+		/* Give time for log buffer to flush */
+		k_msleep(100);
+
+		/* Infinite loop with periodic error message */
+		while (1) {
+			printk("ERROR: DM9051 chip ID verification failed: 0x%04x\n", chip_id);
+			k_msleep(1000);
+		}
+		return -ENODEV;
 	}
 
-	if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
-		LOG_ERR("%s: Unable to configure GPIO pin %u", dev->name, config->interrupt.pin);
-		return -EINVAL;
-	}
+	LOG_INF("%s: Chip ID verified: 0x%04x", dev->name, chip_id);
 
-	gpio_init_callback(&(context->gpio_cb), eth_enc28j60_gpio_callback,
-			   BIT(config->interrupt.pin));
+	/* Perform core reset */
+	dm9051_core_reset(dev);
 
-	if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
-		return -EINVAL;
-	}
+	/* Set MAC address */
+	dm9051_set_mac_address(dev, context->mac_address);
 
-	gpio_pin_interrupt_configure_dt(&config->interrupt,
-					GPIO_INT_EDGE_TO_ACTIVE);
+	/* Configure receive */
+	dm9051_set_receive(dev);
 
-	if (eth_enc28j60_soft_reset(dev)) {
-		LOG_ERR("%s: Soft-reset failed", dev->name);
-		return -EIO;
-	}
-
-
-	k_busy_wait(D10D24S);
-
-
-	if (config->random_mac) {
-		gen_random_mac(context->mac_address, MICROCHIP_OUI_B0, MICROCHIP_OUI_B1,
-			       MICROCHIP_OUI_B2);
-		LOG_INF("Random MAC Addr %02x:%02x:%02x:%02x:%02x:%02x", context->mac_address[0],
-			context->mac_address[1], context->mac_address[2], context->mac_address[3],
-			context->mac_address[4], context->mac_address[5]);
-	} else {
-
-		context->mac_address[0] = MICROCHIP_OUI_B0;
-		context->mac_address[1] = MICROCHIP_OUI_B1;
-		context->mac_address[2] = MICROCHIP_OUI_B2;
-	}
-
-	if (eth_enc28j60_init_buffers(dev)) {
-		return -ETIMEDOUT;
-	}
-	eth_enc28j60_init_mac(dev);
-	eth_enc28j60_init_phy(dev);
-
-
-	eth_enc28j60_set_eth_reg(dev, ENC28J60_REG_EIE, ENC28J60_BIT_EIE_INTIE);
-	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
-	eth_enc28j60_set_eth_reg(dev, DM9051_NCR, NCR_RST);
-	eth_enc28j60_write_phy(dev, DM9051_NCR, NCR_RST);
-	*/
-
-	/* Enable Reception */
-	//eth_enc28j60_set_eth_reg(dev, DM9051_NCR,
-	//			 NCR_RST);
-
-#if 0
-	k_thread_create(&context->thread, context->thread_stack,
-			CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE,
-			eth_enc28j60_rx_thread,
-			(void *)dev, NULL, NULL,
-			K_PRIO_COOP(CONFIG_ETH_ENC28J60_RX_THREAD_PRIO),
-			0, K_NO_WAIT);
-#endif
-
-	LOG_INF("%s: Initialized", dev->name);
+	LOG_INF("%s: Initialized successfully", dev->name);
 
 	return 0;
 }
-#endif
+
+/*******************************************************************************
+ * Device Instantiation
+ ******************************************************************************/
 
 #define DM9051_DEFINE(inst)                                                                        \
 	static struct dm9051_runtime dm9051_runtime_##inst = {                                     \
@@ -960,14 +593,13 @@ static int eth_dm9051_init(const struct device *dev)
 		.int_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).int_sem, 0, UINT_MAX),        \
 	};                                                                                         \
                                                                                                    \
-	static const struct dm9051_config dm9051_config_##inst = {                     \
+	static const struct dm9051_config dm9051_config_##inst = {                                 \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
-		/* .full_duplex = DT_INST_PROP(0, full_duplex),*/                                       \
-		.timeout = 100,                                            \
-	};          \
-                                                                                            \
-	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst,      \
+		.timeout = 100,                                                                    \
+	};                                                                                         \
+                                                                                                   \
+	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst,         \
 				      &dm9051_config_##inst, CONFIG_ETH_INIT_PRIORITY, &api_funcs, \
 				      NET_ETH_MTU);
 
