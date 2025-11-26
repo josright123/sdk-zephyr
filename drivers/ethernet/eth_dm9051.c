@@ -571,6 +571,50 @@ static int eth_dm9051_init(const struct device *dev)
 	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
 	k_msleep(100);
 
+	/* Print detailed GPIO information */
+	printk("INFO: ========================================\n");
+	printk("INFO: GPIO Configuration Details:\n");
+	printk("INFO: CS GPIO Port: %s\n", config->spi.config.cs.gpio.port->name);
+	printk("INFO: CS GPIO Pin: %d\n", config->spi.config.cs.gpio.pin);
+	printk("INFO: CS GPIO Flags: 0x%x\n", config->spi.config.cs.gpio.dt_flags);
+	printk("INFO: SPI Bus: %s\n", config->spi.bus->name);
+	printk("INFO: ========================================\n");
+
+	/* Test CS pin control - toggle every 2 seconds for 60 seconds */
+	printk("INFO: %s: Testing CS pin control (60 seconds)...\n", dev->name);
+	printk("INFO: CS pin will toggle HIGH/LOW every 2 seconds\n");
+	printk("INFO: Measure CS pin (P1.2) with multimeter or oscilloscope\n");
+	printk("INFO: Note: CS is configured as ACTIVE_LOW\n");
+	printk("INFO: ========================================\n");
+
+#if 0
+	for (int i = 0; i < 30; i++) {
+		/* Set CS to logical 0 (physical HIGH due to ACTIVE_LOW) */
+		gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+		printk("INFO: CS test %d/30 - CS logical=0 (physical=HIGH)\n", i + 1);
+		k_msleep(2000);
+
+		/* Set CS to logical 1 (physical LOW due to ACTIVE_LOW) */
+		gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+		printk("INFO: CS test %d/30 - CS logical=1 (physical=LOW)\n", i + 1);
+		k_msleep(2000);
+	}
+#endif
+	printk("INFO: CS pin test completed\n");
+	printk("INFO: ========================================\n");
+
+	/* Now test SPI bus communication */
+	printk("INFO: %s: Testing SPI bus communication...\n", dev->name);
+	for (int i = 0; i < 8; i++) {
+		gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+		k_busy_wait(10);
+		uint8_t test_byte = dm9051_spi_xfer(dev, 0xAA);
+		k_busy_wait(10);
+		gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+		printk("INFO: SPI test %d - Sent: 0xAA, Received: 0x%02x\n", i, test_byte);
+		k_msleep(100);
+	}
+
 	/* Try reading chip ID multiple times */
 	printk("INFO: %s: Attempting to read chip ID...\n", dev->name);
 	for (int attempt = 0; attempt < 3; attempt++) {
@@ -596,7 +640,12 @@ static int eth_dm9051_init(const struct device *dev)
 		k_msleep(100);
 
 		while (1) {
-			printk("ERROR: DM9051 chip ID verification failed: 0x%04x\n", chip_id);
+			chip_id = dm9051_get_chipid(dev);
+			if (chip_id == 0x9051 || chip_id == 0x9058) {
+				printk("INFO: DM9051 chip ID verified: 0x%04x\n", chip_id);
+				break;
+			}
+			printk("LOOP-TEST: DM9051 chip ID verification failed: 0x%04x\n", chip_id);
 			k_msleep(1000);
 		}
 		return -ENODEV;
@@ -630,7 +679,8 @@ static int eth_dm9051_init(const struct device *dev)
 	};                                                                                         \
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
+		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8) | SPI_HOLD_ON_CS | SPI_LOCK_ON,  \
+					    0),                                                    \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
 		.timeout = 100,                                                                    \
 	};                                                                                         \
