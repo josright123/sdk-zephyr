@@ -49,7 +49,7 @@
 	dm9051: dm9051@0 {
 		compatible = "davicom,dm9051";
 		reg = <0>;
-		spi-max-frequency = <4000000>;  /* 4MHz - reduced for stability */
+		spi-max-frequency = <1000000>;  /* 1MHz - minimum for debugging */
 		int-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
 		
 		/* Local MAC address */

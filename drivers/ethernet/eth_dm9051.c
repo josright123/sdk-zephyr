@@ -559,19 +559,42 @@ static int eth_dm9051_init(const struct device *dev)
 	       config->spi.config.frequency, config->spi.config.frequency / 1000000);
 	LOG_INF("%s: SPI frequency: %u Hz", dev->name, config->spi.config.frequency);
 
+	/* Verify CS GPIO is ready */
+	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
+		printk("ERROR: %s: CS GPIO not ready\n", dev->name);
+		return -ENODEV;
+	}
+	printk("INFO: %s: CS GPIO ready - Port: %s, Pin: %d\n", dev->name,
+	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin);
+
+	/* Initialize CS pin */
+	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
+	k_msleep(100);
+
+	/* Try reading chip ID multiple times */
+	printk("INFO: %s: Attempting to read chip ID...\n", dev->name);
+	for (int attempt = 0; attempt < 3; attempt++) {
+		k_msleep(50);
+		chip_id = dm9051_get_chipid(dev);
+		printk("INFO: %s: Chip ID read attempt %d: 0x%04x\n", dev->name, attempt + 1,
+		       chip_id);
+		if (chip_id == 0x9051 || chip_id == 0x9058) {
+			break;
+		}
+	}
+
 	/* Verify chip ID before reset */
-	chip_id = dm9051_get_chipid(dev);
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		/* Use both LOG_ERR and printk for maximum visibility */
-		//		LOG_ERR("%s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)",
-		// dev->name, 			chip_id);
 		printk("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
 		       dev->name, chip_id);
-
-		/* Give time for log buffer to flush */
+		printk("DIAGNOSTIC: Check hardware connections:\n");
+		printk("  - SCK:  P1.3\n");
+		printk("  - MOSI: P1.1\n");
+		printk("  - MISO: P1.0\n");
+		printk("  - CS:   P1.2\n");
+		printk("  - Power supply to DM9051\n");
 		k_msleep(100);
 
-		/* Infinite loop with periodic error message */
 		while (1) {
 			printk("ERROR: DM9051 chip ID verification failed: 0x%04x\n", chip_id);
 			k_msleep(1000);
