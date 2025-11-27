@@ -285,13 +285,13 @@ static uint16_t dm9051_get_chipid(const struct device *dev)
 	id = (pidh << 8) | pidl;
 
 	/* Print raw register values for debugging */
-	printk("DEBUG: Chip ID registers - PIDH: 0x%02x, PIDL: 0x%02x, Combined: 0x%04x\n", pidh,
-	       pidl, id);
+	LOG_INF("DEBUG: Chip ID registers - PIDH: 0x%02x, PIDL: 0x%02x, Combined: 0x%04x", pidh,
+		pidl, id);
 
 	/* DM9051 returns 0x9000, normalize to 0x9051 */
 	if (id == 0x9000) {
 		id = 0x9051;
-		printk("DEBUG: Normalized chip ID from 0x9000 to 0x9051\n");
+		LOG_INF("DEBUG: Normalized chip ID from 0x9000 to 0x9051");
 	}
 
 	return id;
@@ -308,8 +308,8 @@ static void dm9051_set_mac_address(const struct device *dev, const uint8_t *mac)
 		dm9051_write_reg(dev, DM9051_PAR + i, mac[i]);
 	}
 
-	LOG_INF("%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2], mac[3],
-		mac[4], mac[5]);
+	LOG_INF("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2],
+		mac[3], mac[4], mac[5]);
 }
 
 /**
@@ -569,6 +569,8 @@ static int eth_dm9051_init(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 	uint16_t chip_id;
 
+	printk("\n\n");
+	LOG_INF("%s: eth_dm9051_init.s", dev->name);
 	LOG_INF("%s: Initializing DM9051", dev->name);
 
 	/* Check SPI is ready */
@@ -578,52 +580,43 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 
 	/* Print SPI configuration */
-	printk("INFO: %s: SPI frequency configured: %u Hz (%u MHz)\n", dev->name,
-	       config->spi.config.frequency, config->spi.config.frequency / 1000000);
-	LOG_INF("%s: SPI frequency: %u Hz", dev->name, config->spi.config.frequency);
+	// LOG_INF("%s: SPI frequency: %u Hz (%u MHz)", dev->name, config->spi.config.frequency,
+	// 	config->spi.config.frequency / 1000000);
 
 	/* Verify CS GPIO is ready */
-	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
-		printk("ERROR: %s: CS GPIO not ready\n", dev->name);
-		return -ENODEV;
-	}
-	printk("INFO: %s: CS GPIO ready - Port: %s, Pin: %d\n", dev->name,
-	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin);
+	// if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
+	// 	LOG_ERR("%s: CS GPIO not ready", dev->name);
+	// 	return -ENODEV;
+	// }
 
 	/* Initialize CS pin */
 	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
-	//k_msleep(100);
 
-	/* Print detailed GPIO information */
-	printk("INFO: ========================================\n");
-	printk("INFO: dev->name = %s\n", dev->name);
-	printk("INFO: GPIO Configuration Details:\n");
-	printk("INFO: CS GPIO Port: %s\n", config->spi.config.cs.gpio.port->name);
-	printk("INFO: CS GPIO Pin: %d\n", config->spi.config.cs.gpio.pin);
-	printk("INFO: CS GPIO Flags: 0x%x\n", config->spi.config.cs.gpio.dt_flags);
-	printk("INFO: SPI Bus: %s\n", config->spi.bus->name);
-	printk("INFO: ========================================\n");
-
-	/* Test 2: Test GPIO1 multiple pins to find working alternatives */
+	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 	if (!device_is_ready(gpio1)) {
-		printk("ERROR: GPIO1 device not ready!\n");
-		printk("ERROR: This means GPIO1 port is not enabled/powered\n");
-	} else {
-		printk("INFO: GPIO1 device is ready\n");
-		int err = gpio_pin_configure(gpio1, 8, GPIO_OUTPUT_INACTIVE);
-		if (err) {
-			printk("ERROR: P1.8 - Failed to configure: %d\n", err);
-		}
+		LOG_ERR("ERROR: GPIO1 device not ready!");
+		return -ENODEV;
+	}
+	int err = gpio_pin_configure(gpio1, 8, GPIO_OUTPUT_INACTIVE);
+	if (err) {
+		LOG_ERR("ERROR: P1.8 - Failed to configure: %d", err);
+		return -ENODEV;
 	}
 
+	/* Print detailed GPIO information */
+	LOG_INF("INFO: ========================================");
+	LOG_INF("INFO: dev->name = %s", dev->name);
+	LOG_INF("INFO: SPI Bus: %s", config->spi.bus->name);
+	LOG_INF("INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard code Pin: %d)",
+		config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
+	// LOG_INF("INFO: CS GPIO Flags: 0x%x", config->spi.config.cs.gpio.dt_flags);
+	LOG_INF("INFO: ========================================");
+
 	/* Try reading chip ID multiple times */
-	printk("INFO: %s: Attempting to read chip ID...\n", dev->name);
 	for (int attempt = 0; attempt < 3; attempt++) {
 		k_msleep(50);
 		chip_id = dm9051_get_chipid(dev);
-		printk("INFO: %s: Chip ID read attempt %d: 0x%04x\n", dev->name, attempt + 1,
-		       chip_id);
 		if (chip_id == 0x9051 || chip_id == 0x9058) {
 			break;
 		}
@@ -631,22 +624,22 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Verify chip ID before reset */
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		printk("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
-		       dev->name, chip_id);
+		LOG_INF("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)", dev->name,
+			chip_id);
 
 		while (1) {
 			chip_id = dm9051_get_chipid(dev);
 			if (chip_id == 0x9051 || chip_id == 0x9058) {
-				printk("INFO: DM9051 chip ID verified: 0x%04x\n", chip_id);
+				LOG_INF("INFO: DM9051 chip ID verified: 0x%04x", chip_id);
 				break;
 			}
-			printk("LOOP-TEST: DM9051 chip ID verification failed: 0x%04x\n", chip_id);
+			LOG_INF("LOOP-TEST: DM9051 chip ID verification failed: 0x%04x", chip_id);
 			k_msleep(1000);
 		}
 		return -ENODEV;
 	}
 
-	LOG_INF("%s: Chip ID verified: 0x%04x", dev->name, chip_id);
+	LOG_INF("INFO: %s: Chip ID verified: 0x%04x", dev->name, chip_id);
 
 	/* Perform core reset */
 	dm9051_core_reset(dev);
@@ -657,7 +650,7 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Configure receive */
 	dm9051_set_receive(dev);
 
-	LOG_INF("%s: Initialized successfully", dev->name);
+	LOG_INF("%s: eth_dm9051_init.e", dev->name);
 
 	return 0;
 }
