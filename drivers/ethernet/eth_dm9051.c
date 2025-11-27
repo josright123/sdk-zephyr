@@ -71,6 +71,14 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 	uint8_t result;
 
 	/* CS low */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+
+	//	int err = gpio_pin_configure(gpio1, pin, GPIO_OUTPUT_INACTIVE);
+	//	if (err) {
+	//		printk("ERROR: P1.%d - Failed to configure: %d\n", pin, err);
+	//		continue;
+	//	}
+	gpio_pin_set(gpio1, 8, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send register address with read opcode */
@@ -79,6 +87,7 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 	result = dm9051_spi_xfer(dev, 0);
 
 	/* CS high */
+	gpio_pin_set(gpio1, 8, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 
 	return result;
@@ -95,6 +104,8 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+	gpio_pin_set(gpio1, 8, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send register address with write opcode */
@@ -103,6 +114,7 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 	dm9051_spi_xfer(dev, val);
 
 	/* CS high */
+	gpio_pin_set(gpio1, 8, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -117,6 +129,8 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+	gpio_pin_set(gpio1, 8, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory read command */
@@ -128,6 +142,7 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	}
 
 	/* CS high */
+	gpio_pin_set(gpio1, 8, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -142,6 +157,8 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+	gpio_pin_set(gpio1, 8, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory write command */
@@ -153,6 +170,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	}
 
 	/* CS high */
+	gpio_pin_set(gpio1, 8, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -574,10 +592,11 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Initialize CS pin */
 	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
-	k_msleep(100);
+	//k_msleep(100);
 
 	/* Print detailed GPIO information */
 	printk("INFO: ========================================\n");
+	printk("INFO: dev->name = %s\n", dev->name);
 	printk("INFO: GPIO Configuration Details:\n");
 	printk("INFO: CS GPIO Port: %s\n", config->spi.config.cs.gpio.port->name);
 	printk("INFO: CS GPIO Pin: %d\n", config->spi.config.cs.gpio.pin);
@@ -585,64 +604,17 @@ static int eth_dm9051_init(const struct device *dev)
 	printk("INFO: SPI Bus: %s\n", config->spi.bus->name);
 	printk("INFO: ========================================\n");
 
-	/* Test CS pin control - toggle every 2 seconds for 60 seconds */
-	printk("INFO: %s: Testing CS pin control (60 seconds)...\n", dev->name);
-	printk("INFO: CS pin will toggle HIGH/LOW every 2 seconds\n");
-	printk("INFO: Measure CS pin (P1.2) with multimeter or oscilloscope\n");
-	printk("INFO: Note: CS is configured as ACTIVE_LOW\n");
-	printk("INFO: ========================================\n");
-
-#if 0
-	for (int i = 0; i < 10; i++) {
-		/* Set CS to logical 0 (physical HIGH due to ACTIVE_LOW) */
-		gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
-		printk("INFO: CS test %d/10 - CS logical=0 (physical=HIGH)\n", i + 1);
-		k_msleep(1000);
-
-		/* Set CS to logical 1 (physical LOW due to ACTIVE_LOW) */
-		gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
-		printk("INFO: CS test %d/10 - CS logical=1 (physical=LOW)\n", i + 1);
-		k_msleep(1000);
-	}
-
-	/* TEST SCK PIN (P1.12) AS GPIO */
-	printk("INFO: Testing SCK pin (P1.12) as GPIO...\n");
-	const struct device *gpio_port = config->spi.config.cs.gpio.port;
-	int sck_pin = 12; // P1.12
-
-	int err = gpio_pin_configure(gpio_port, sck_pin, GPIO_OUTPUT_ACTIVE);
-	if (err) {
-		printk("ERROR: Failed to configure SCK as GPIO: %d\n", err);
+	/* Test 2: Test GPIO1 multiple pins to find working alternatives */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+	if (!device_is_ready(gpio1)) {
+		printk("ERROR: GPIO1 device not ready!\n");
+		printk("ERROR: This means GPIO1 port is not enabled/powered\n");
 	} else {
-		for (int i = 0; i < 10; i++) {
-			gpio_pin_set(gpio_port, sck_pin, 1);
-			printk("INFO: SCK GPIO test %d/10 - HIGH\n", i + 1);
-			k_msleep(500);
-			gpio_pin_set(gpio_port, sck_pin, 0);
-			printk("INFO: SCK GPIO test %d/10 - LOW\n", i + 1);
-			k_msleep(500);
+		printk("INFO: GPIO1 device is ready\n");
+		int err = gpio_pin_configure(gpio1, 8, GPIO_OUTPUT_INACTIVE);
+		if (err) {
+			printk("ERROR: P1.8 - Failed to configure: %d\n", err);
 		}
-		// Restore pin to default (input) to avoid interference with SPI later
-		gpio_pin_configure(gpio_port, sck_pin, GPIO_INPUT);
-	}
-#endif
-	printk("INFO: CS pin test completed\n");
-	printk("INFO: ========================================\n");
-
-	/* Now test SPI bus communication */
-	printk("INFO: %s: Testing SPI bus communication...\n", dev->name);
-	uint8_t pretest_byte = 0xff;
-	for (int i = 0; i <= 200; i++) {
-		// gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
-		k_busy_wait(10);
-		uint8_t test_byte = dm9051_spi_xfer(dev, 0xAA);
-		k_busy_wait(10);
-		// gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
-		if (test_byte != pretest_byte || i % 100 == 0) {
-			printk("INFO: SPI test %d - Sent: 0xAA, Received: 0x%02x\n", i, test_byte);
-		}
-		pretest_byte = test_byte;
-		k_msleep(100);
 	}
 
 	/* Try reading chip ID multiple times */
@@ -661,13 +633,6 @@ static int eth_dm9051_init(const struct device *dev)
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
 		printk("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
 		       dev->name, chip_id);
-		printk("DIAGNOSTIC: Check hardware connections:\n");
-		printk("  - SCK:  P1.3\n");
-		printk("  - MOSI: P1.1\n");
-		printk("  - MISO: P1.0\n");
-		printk("  - CS:   P1.2\n");
-		printk("  - Power supply to DM9051\n");
-		k_msleep(100);
 
 		while (1) {
 			chip_id = dm9051_get_chipid(dev);
