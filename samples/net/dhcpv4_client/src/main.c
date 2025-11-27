@@ -189,5 +189,19 @@ int main(void)
 	
 	LOG_INF("DHCPv4 client started. Waiting for IP address...");
 	
+	#if 1
+
+	#ifndef BANNER_VERSION
+	#if defined(BUILD_VERSION) && !IS_EMPTY(BUILD_VERSION)
+	//#define BANNER_VERSION STRINGIFY(BUILD_VERSION)
+	#else
+	//#define BANNER_VERSION KERNEL_VERSION_STRING
+	#endif /* BUILD_VERSION */
+	#endif /* !BANNER_VERSION */
+
+	//boot_banner();
+	printk("*** %s *** main.c\n", STRINGIFY(BUILD_VERSION));
+	#endif
+	
 	return 0;
 }

@@ -664,8 +664,22 @@ static int eth_dm9051_init(const struct device *dev)
 
 #if 1
 	/* Set MAC address */
+	
+	#if 0
+	//boot_banner();
+	//printk("*** " CONFIG_BOOT_BANNER_STRING " " BANNER_VERSION BANNER_POSTFIX " *** main.c\n");
+	#endif
+
+	#ifndef BANNER_VERSION
+	#if defined(BUILD_VERSION) && !IS_EMPTY(BUILD_VERSION)
+	//#define BANNER_VERSION STRINGIFY(BUILD_VERSION)
+	#else
+	//#define BANNER_VERSION KERNEL_VERSION_STRING
+	#endif /* BUILD_VERSION */
+	#endif /* !BANNER_VERSION */
+
 	int endc = 0;
-	printk("\n(end.e=%d)\n", endc);
+	printk("\n(end.e=%d) %s\n", endc, STRINGIFY(BUILD_VERSION));
 	dm9051_set_mac_address(dev, context->mac_address);
 	printk("_eth_dm9051_init: end.e (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: 0x%04x\n",
 		   context->mac_address[0], context->mac_address[1], context->mac_address[2],
@@ -674,11 +688,10 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Configure receive */
 	dm9051_set_receive(dev);
 	printk("_eth_dm9051_init: end.e (set receive, RCR_DEFAULT | RCR_RXEN) Chip ID: 0x%04x\n", chip_id);
-#endif
 
 	// LOG_INF("%s: eth_dm9051_init.e", dev->name);
 	// printk("%s: eth_dm9051_init.e\n", dev->name);
-
+#endif
 	return 0;
 }
 

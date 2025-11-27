@@ -43,6 +43,9 @@ __weak void boot_banner(void)
 #endif /* CONFIG_BOOT_CLEAR_SCREEN */
 
 #ifdef CONFIG_BOOT_BANNER
-	printk("*** " CONFIG_BOOT_BANNER_STRING " " BANNER_VERSION BANNER_POSTFIX " ***\n");
+#if 1
+	//printk("*** " CONFIG_BOOT_BANNER_STRING " " BANNER_VERSION BANNER_POSTFIX " ***\n");
+	printk("*** " " " BANNER_VERSION " " BANNER_POSTFIX " ***\n"); ........dv,m m rv,wrwer.................
+#endif /* CONFIG_BOOT_BANNER */
 #endif /* CONFIG_BOOT_BANNER */
 }
