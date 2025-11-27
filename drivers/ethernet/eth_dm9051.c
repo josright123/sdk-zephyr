@@ -285,8 +285,8 @@ static uint16_t dm9051_get_chipid(const struct device *dev)
 	id = (pidh << 8) | pidl;
 
 	/* Print raw register values for debugging */
-	LOG_INF("DEBUG: Chip ID registers - PIDH: 0x%02x, PIDL: 0x%02x, Combined: 0x%04x", pidh,
-		pidl, id);
+	// LOG_INF("DEBUG: Chip ID registers - PIDH: 0x%02x, PIDL: 0x%02x, Combined: 0x%04x", pidh,
+	//	pidl, id);
 
 	/* DM9051 returns 0x9000, normalize to 0x9051 */
 	if (id == 0x9000) {
@@ -308,8 +308,10 @@ static void dm9051_set_mac_address(const struct device *dev, const uint8_t *mac)
 		dm9051_write_reg(dev, DM9051_PAR + i, mac[i]);
 	}
 
-	LOG_INF("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2],
-		mac[3], mac[4], mac[5]);
+	// LOG_INF("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2],
+	//	mac[3], mac[4], mac[5]);
+	//	printk("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x\n", dev->name, mac[0], mac[1],
+	// mac[2], 		mac[3], mac[4], mac[5]);
 }
 
 /**
@@ -513,16 +515,31 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
 		memcpy(context->mac_address, config->mac_address.addr,
 		       sizeof(context->mac_address));
+
+#if 1
+		/* Set MAC address */
+		printk("\n\n");
 		dm9051_set_mac_address(dev, context->mac_address);
+		printk("_dm9051_set_config: MAC, %02x:%02x:%02x:%02x:%02x:%02x\n",
+		       context->mac_address[0], context->mac_address[1], context->mac_address[2],
+		       context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+
+		/* Configure receive */
+		dm9051_set_receive(dev);
+		printk("_dm9051_set_config: DM9051_RCR configured, RCR_DEFAULT | RCR_RXEN\n");
+#endif
 
 		if (context->iface != NULL) {
 			net_if_set_link_addr(context->iface, context->mac_address,
 					     sizeof(context->mac_address), NET_LINK_ETHERNET);
 		}
 
+		printk("%s: _dm9051_set_config: Interface configured.e [(set mac address, and set receive)]\n",
+		       dev->name);
 		return 0;
 	}
 
+	printk("%s: _dm9051_set_config: Interface configured.e [(nothing)]\n", dev->name);
 	return -ENOTSUP;
 }
 
@@ -549,7 +566,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 
 	context->iface_initialized = true;
 
-	LOG_INF("%s: Interface initialized", dev->name);
+	// LOG_INF("%s: Interface initialized", dev->name);
+	printk("_eth_dm9051_iface_init: Interface initialized.e\n");
 }
 
 static const struct ethernet_api api_funcs = {
@@ -570,12 +588,12 @@ static int eth_dm9051_init(const struct device *dev)
 	uint16_t chip_id;
 
 	printk("\n\n");
-	LOG_INF("%s: eth_dm9051_init.s", dev->name);
-	LOG_INF("%s: Initializing DM9051", dev->name);
+	printk("_eth_dm9051_init: eth_dm9051_init.s\n");
+	printk("_eth_dm9051_init: Initializing DM9051\n");
 
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
-		LOG_ERR("%s: SPI not ready", dev->name);
+		printk("_eth_dm9051_init: SPI not ready\n");
 		return -ENODEV;
 	}
 
@@ -595,23 +613,23 @@ static int eth_dm9051_init(const struct device *dev)
 	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 	if (!device_is_ready(gpio1)) {
-		LOG_ERR("ERROR: GPIO1 device not ready!");
+		printk("_eth_dm9051_init: ERROR: GPIO1 device not ready!\n");
 		return -ENODEV;
 	}
 	int err = gpio_pin_configure(gpio1, 8, GPIO_OUTPUT_INACTIVE);
 	if (err) {
-		LOG_ERR("ERROR: P1.8 - Failed to configure: %d", err);
+		printk("_eth_dm9051_init: ERROR: P1.8 - Failed to configure: %d\n", err);
 		return -ENODEV;
 	}
 
 	/* Print detailed GPIO information */
-	LOG_INF("INFO: ========================================");
-	LOG_INF("INFO: dev->name = %s", dev->name);
-	LOG_INF("INFO: SPI Bus: %s", config->spi.bus->name);
-	LOG_INF("INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard code Pin: %d)",
+	printk("_eth_dm9051_init: INFO: ========================================\n");
+	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
+	printk("_eth_dm9051_init: INFO: SPI Bus: %s\n", config->spi.bus->name);
+	printk("_eth_dm9051_init: INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard code Pin: %d)\n",
 		config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
 	// LOG_INF("INFO: CS GPIO Flags: 0x%x", config->spi.config.cs.gpio.dt_flags);
-	LOG_INF("INFO: ========================================");
+	printk("_eth_dm9051_init: INFO: ========================================\n");
 
 	/* Try reading chip ID multiple times */
 	for (int attempt = 0; attempt < 3; attempt++) {
@@ -624,7 +642,7 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Verify chip ID before reset */
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		LOG_INF("ERROR: %s: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)", dev->name,
+		printk("_eth_dm9051_init: ERROR: Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)\n",
 			chip_id);
 
 		while (1) {
@@ -639,18 +657,27 @@ static int eth_dm9051_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	LOG_INF("INFO: %s: Chip ID verified: 0x%04x", dev->name, chip_id);
+//	printk("_eth_dm9051_init: INFO: Chip ID verified: 0x%04x\n", chip_id);
 
 	/* Perform core reset */
 	dm9051_core_reset(dev);
 
+#if 1
 	/* Set MAC address */
+	int endc = 0;
+	printk("\n(end.e=%d)\n", endc);
 	dm9051_set_mac_address(dev, context->mac_address);
+	printk("_eth_dm9051_init: end.e (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: 0x%04x\n",
+		   context->mac_address[0], context->mac_address[1], context->mac_address[2],
+		   context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
 
 	/* Configure receive */
 	dm9051_set_receive(dev);
+	printk("_eth_dm9051_init: end.e (set receive, RCR_DEFAULT | RCR_RXEN) Chip ID: 0x%04x\n", chip_id);
+#endif
 
-	LOG_INF("%s: eth_dm9051_init.e", dev->name);
+	// LOG_INF("%s: eth_dm9051_init.e", dev->name);
+	// printk("%s: eth_dm9051_init.e\n", dev->name);
 
 	return 0;
 }
