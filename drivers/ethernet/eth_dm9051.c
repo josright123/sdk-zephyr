@@ -44,13 +44,18 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 static uint8_t dm9051_spi_xfer(const struct device *dev, uint8_t byte)
 {
 	const struct dm9051_config *config = dev->config;
-	uint8_t rx_data;
+	uint8_t rx_data = 0;
 	struct spi_buf tx_buf = {.buf = &byte, .len = 1};
 	struct spi_buf rx_buf = {.buf = &rx_data, .len = 1};
 	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
 	const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
+	int ret;
 
-	spi_transceive_dt(&config->spi, &tx, &rx);
+	ret = spi_transceive_dt(&config->spi, &tx, &rx);
+	if (ret < 0) {
+		printk("ERROR: SPI transfer failed: %d\n", ret);
+		return 0xFF;
+	}
 	return rx_data;
 }
 
@@ -66,7 +71,7 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 	uint8_t result;
 
 	/* CS low */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send register address with read opcode */
 	dm9051_spi_xfer(dev, reg | OPC_REG_R);
@@ -74,7 +79,7 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 	result = dm9051_spi_xfer(dev, 0);
 
 	/* CS high */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 
 	return result;
 }
@@ -90,7 +95,7 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send register address with write opcode */
 	dm9051_spi_xfer(dev, reg | OPC_REG_W);
@@ -98,7 +103,7 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 	dm9051_spi_xfer(dev, val);
 
 	/* CS high */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
 /**
@@ -112,7 +117,7 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory read command */
 	dm9051_spi_xfer(dev, DM9051_MRCMD | OPC_REG_R);
@@ -123,7 +128,7 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	}
 
 	/* CS high */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
 /**
@@ -137,7 +142,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	const struct dm9051_config *config = dev->config;
 
 	/* CS low */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory write command */
 	dm9051_spi_xfer(dev, DM9051_MWCMD | OPC_REG_W);
@@ -148,7 +153,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	}
 
 	/* CS high */
-	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
 /*******************************************************************************
@@ -588,16 +593,37 @@ static int eth_dm9051_init(const struct device *dev)
 	printk("INFO: ========================================\n");
 
 #if 0
-	for (int i = 0; i < 30; i++) {
+	for (int i = 0; i < 10; i++) {
 		/* Set CS to logical 0 (physical HIGH due to ACTIVE_LOW) */
 		gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
-		printk("INFO: CS test %d/30 - CS logical=0 (physical=HIGH)\n", i + 1);
-		k_msleep(2000);
+		printk("INFO: CS test %d/10 - CS logical=0 (physical=HIGH)\n", i + 1);
+		k_msleep(1000);
 
 		/* Set CS to logical 1 (physical LOW due to ACTIVE_LOW) */
 		gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
-		printk("INFO: CS test %d/30 - CS logical=1 (physical=LOW)\n", i + 1);
-		k_msleep(2000);
+		printk("INFO: CS test %d/10 - CS logical=1 (physical=LOW)\n", i + 1);
+		k_msleep(1000);
+	}
+
+	/* TEST SCK PIN (P1.12) AS GPIO */
+	printk("INFO: Testing SCK pin (P1.12) as GPIO...\n");
+	const struct device *gpio_port = config->spi.config.cs.gpio.port;
+	int sck_pin = 12; // P1.12
+
+	int err = gpio_pin_configure(gpio_port, sck_pin, GPIO_OUTPUT_ACTIVE);
+	if (err) {
+		printk("ERROR: Failed to configure SCK as GPIO: %d\n", err);
+	} else {
+		for (int i = 0; i < 10; i++) {
+			gpio_pin_set(gpio_port, sck_pin, 1);
+			printk("INFO: SCK GPIO test %d/10 - HIGH\n", i + 1);
+			k_msleep(500);
+			gpio_pin_set(gpio_port, sck_pin, 0);
+			printk("INFO: SCK GPIO test %d/10 - LOW\n", i + 1);
+			k_msleep(500);
+		}
+		// Restore pin to default (input) to avoid interference with SPI later
+		gpio_pin_configure(gpio_port, sck_pin, GPIO_INPUT);
 	}
 #endif
 	printk("INFO: CS pin test completed\n");
@@ -605,13 +631,17 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Now test SPI bus communication */
 	printk("INFO: %s: Testing SPI bus communication...\n", dev->name);
-	for (int i = 0; i < 8; i++) {
-		gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	uint8_t pretest_byte = 0xff;
+	for (int i = 0; i <= 200; i++) {
+		// gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 		k_busy_wait(10);
 		uint8_t test_byte = dm9051_spi_xfer(dev, 0xAA);
 		k_busy_wait(10);
-		gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
-		printk("INFO: SPI test %d - Sent: 0xAA, Received: 0x%02x\n", i, test_byte);
+		// gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+		if (test_byte != pretest_byte || i % 100 == 0) {
+			printk("INFO: SPI test %d - Sent: 0xAA, Received: 0x%02x\n", i, test_byte);
+		}
+		pretest_byte = test_byte;
 		k_msleep(100);
 	}
 
@@ -679,8 +709,7 @@ static int eth_dm9051_init(const struct device *dev)
 	};                                                                                         \
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8) | SPI_HOLD_ON_CS | SPI_LOCK_ON,  \
-					    0),                                                    \
+		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
 		.timeout = 100,                                                                    \
 	};                                                                                         \
