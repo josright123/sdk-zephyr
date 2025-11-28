@@ -553,7 +553,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	int through_c = endc++;
 
 	printk("\n(end.s=%d) %s\n", through_c, "iface_init");
-	//printk("_dm9051_iface_init: iface init.s, %s\n", dev->name);
+	// printk("_dm9051_iface_init: iface init.s, %s\n", dev->name);
 
 	net_if_set_link_addr(iface, context->mac_address, sizeof(context->mac_address),
 			     NET_LINK_ETHERNET);
@@ -574,7 +574,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	context->iface_initialized = true;
 
 	// LOG_INF("%s: Interface initialized", dev->name);
-	//printk("_dm9051_iface_init: iface init.e, %s\n", dev->name);
+	// printk("_dm9051_iface_init: iface init.e, %s\n", dev->name);
 	printk("\n(end.e=%d) %s\n", through_c, "iface_init");
 }
 
@@ -699,6 +699,13 @@ static int eth_dm9051_init(const struct device *dev)
 	dm9051_set_receive(dev);
 	printk("_eth_dm9051_init: end.e (set receive, RCR_DEFAULT | RCR_RXEN) Chip ID: 0x%04x\n",
 	       chip_id);
+
+	/* Set carrier on after successful initialization */
+	context->iface_carrier_on_init = true;
+	if (context->iface != NULL) {
+		net_if_carrier_on(context->iface);
+		printk("_eth_dm9051_init: Carrier set ON for interface\n");
+	}
 
 	// LOG_INF("%s: eth_dm9051_init.e", dev->name);
 	// printk("%s: eth_dm9051_init.e\n", dev->name);
