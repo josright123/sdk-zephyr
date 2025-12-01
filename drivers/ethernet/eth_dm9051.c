@@ -43,11 +43,11 @@ struct driver_config {
 /* Default driver configuration */
 const struct driver_config confdata = {
 	.release_version = "zephyr_dm9051_v3.1.0_v1.0",
-//#ifdef DMPLUG_INT
-//	.interrupt = MODE_INTERRUPT, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
-//#else
-//	.interrupt = MODE_POLL, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
-//#endif
+	// #ifdef DMPLUG_INT
+	//	.interrupt = MODE_INTERRUPT, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
+	// #else
+	//	.interrupt = MODE_POLL, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
+	// #endif
 	.interrupt = MODE_POLL,
 };
 
@@ -258,14 +258,14 @@ static void dm9051_phy_write(const struct device *dev, uint16_t reg, uint16_t va
 /*******************************************************************************
  * Core Driver Functions
  ******************************************************************************/
-//#if DMPLUG_INT39
+// #if DMPLUG_INT39
 static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
 
 	k_sem_give(&context->int_sem);
 }
-//#endif
+// #endif
 
 /**
  * @brief Perform core reset of DM9051
@@ -544,7 +544,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 	struct dm9051_runtime *context = dev->data;
 
 	while (1) {
-//#if DMPLUG_INT39
+		// #if DMPLUG_INT39
 		if (cint) {
 			/* Wait for semaphore signal or timeout (polling every 100ms) */
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
@@ -552,12 +552,11 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 				/* semaphore timeout period expired, do something else */
 				continue;
 			}
-		}
-		else {
+		} else {
 			/* Wait for semaphore signal or timeout (polling every 100ms) */
 			k_sem_take(&context->int_sem, K_MSEC(10));
 		}
-//#endif
+		// #endif
 
 		/* Take semaphore to protect SPI access */
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
@@ -732,27 +731,28 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 #endif
 
-//#if DMPLUG_INT39
+	// #if DMPLUG_INT39
 	if (cint) {
 		if (!gpio_is_ready_dt(&config->interrupt)) {
 			LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
 			return -EINVAL;
 		}
-	
+
 		if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
 			LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
 			return -EINVAL;
 		}
-	
-		gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback, BIT(config->interrupt.pin));
-	
+
+		gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
+				   BIT(config->interrupt.pin));
+
 		if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
 			return -EINVAL;
 		}
-	
+
 		gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
 	}
-//#endif
+	// #endif
 
 	/* Print detailed GPIO information */
 	dm9051_init_log(dev);
