@@ -1445,9 +1445,10 @@ static void dhcpv4_handle_msg_ack(struct net_if *iface)
 	case NET_DHCPV4_DECLINE:
 		break;
 	case NET_DHCPV4_REQUESTING:
+#if 0
 		NET_INFO("Received: %s",
 			 net_sprint_ipv4_addr(&iface->config.dhcpv4.requested_ip));
-
+#endif
 		if (!net_if_ipv4_addr_add(iface,
 					  &iface->config.dhcpv4.requested_ip,
 					  NET_ADDR_DHCP,

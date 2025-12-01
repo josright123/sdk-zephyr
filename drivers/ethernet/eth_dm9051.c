@@ -617,7 +617,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
 	printk("(end.e=%d)\n", through_c);
-	printk("iface_init.end.e\n");
+	printk("iface_init.e\n");
 }
 
 static const struct ethernet_api api_funcs = {
@@ -736,10 +736,11 @@ static int eth_dm9051_init(const struct device *dev)
 	context->iface_carrier_on_init = true;
 
 	printk("\n(end.e=%d) %s\n", endc++, STRINGIFY(BUILD_VERSION));
-	printk("_eth_dm9051_init: end.e (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
+	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
-	       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
+	       context->mac_address[3], context->mac_address[4], context->mac_address[5],
+		   chip_id);
 	return 0;
 }
 
