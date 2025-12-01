@@ -506,9 +506,6 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 	const struct device *dev = arg1;
 	struct dm9051_runtime *context = dev->data;
 
-	LOG_INF("%s: RX thread started", dev->name);
-	printk("%s: DM9051 RX thread started\n", dev->name);
-
 	while (1) {
 		/* Wait for semaphore signal or timeout (polling every 100ms) */
 		k_sem_take(&context->int_sem, K_MSEC(100));
@@ -517,12 +514,6 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Process all available packets */
-		//while (dm9051_rx_ready(dev)) {
-		//	if (dm9051_rx_packet(dev) < 0) {
-		//		LOG_ERR("%s: RX packet processing failed", dev->name);
-		//		break;
-		//	}
-		//}
 		while (dm9051_rx_packet(dev) == 0) ;
 
 		/* Release semaphore */
@@ -598,9 +589,6 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	struct dm9051_runtime *context = dev->data;
 	int through_c = endc++;
 
-	printk("\n(end.s=%d) %s\n", through_c, "iface_init");
-	// printk("_dm9051_iface_init: iface init.s, %s\n", dev->name);
-
 	net_if_set_link_addr(iface, context->mac_address, sizeof(context->mac_address),
 			     NET_LINK_ETHERNET);
 
@@ -628,12 +616,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
-	printk("%s: RX thread created\n", dev->name);
-	LOG_INF("%s: RX thread created", dev->name);
-
-	// LOG_INF("%s: Interface initialized", dev->name);
-	// printk("_dm9051_iface_init: iface init.e, %s\n", dev->name);
-	printk("\n(end.e=%d) %s\n", through_c, "iface_init");
+	printk("(end.e=%d)\n", through_c);
+	printk("iface_init.end.e\n");
 }
 
 static const struct ethernet_api api_funcs = {
@@ -642,6 +626,19 @@ static const struct ethernet_api api_funcs = {
 	.get_capabilities = eth_dm9051_get_capabilities,
 	.send = eth_dm9051_tx,
 };
+
+void dm9051_init_log(const struct device *dev)
+{
+	const struct dm9051_config *config = dev->config;
+	printk("_eth_dm9051_init: INFO: ========================================\n");
+	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
+	printk("_eth_dm9051_init: INFO: SPI Bus: %s (%u MHz)\n", config->spi.bus->name,
+		   config->spi.config.frequency / 1000000);
+	printk("_eth_dm9051_init: INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard "
+	       "code Pin: %d)\n",
+	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
+	printk("_eth_dm9051_init: INFO: ========================================\n");
+}
 
 /*******************************************************************************
  * Device Initialization
@@ -655,7 +652,6 @@ static int eth_dm9051_init(const struct device *dev)
 
 	printk("\n\n");
 	printk("_eth_dm9051_init: eth_dm9051_init.s\n");
-	printk("_eth_dm9051_init: Initializing DM9051\n");
 
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
@@ -664,8 +660,6 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 
 	/* Print SPI configuration */
-	//LOG_INF("%s: SPI frequency: %u Hz (%u MHz)", dev->name, config->spi.config.frequency,
-	//	config->spi.config.frequency / 1000000);
 #if 0
 	/* Verify CS GPIO is ready */
 	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
@@ -691,21 +685,13 @@ static int eth_dm9051_init(const struct device *dev)
 #endif
 
 	/* Print detailed GPIO information */
-	printk("_eth_dm9051_init: INFO: ========================================\n");
-	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
-	printk("_eth_dm9051_init: INFO: SPI Bus: %s\n", config->spi.bus->name);
-	printk("_eth_dm9051_init: INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard "
-	       "code Pin: %d)\n",
-	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
-	// LOG_INF("INFO: CS GPIO Flags: 0x%x", config->spi.config.cs.gpio.dt_flags);
-	printk("_eth_dm9051_init: INFO: ========================================\n");
+	dm9051_init_log(dev);
 
 	/* Try reading chip ID multiple times */
 	for (int attempt = 0; attempt < 3; attempt++) {
 		k_msleep(50);
 		chip_id = dm9051_get_chipid(dev);
 		if (chip_id == 0x9051 || chip_id == 0x9058) {
-			printk("INFO: DM9051 chip ID verified inited ok: 0x%04x\n", chip_id);
 			break;
 		}
 	}
@@ -728,21 +714,9 @@ static int eth_dm9051_init(const struct device *dev)
 		}
 		return -ENODEV;
 	}
-	printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .s %04x\n", chip_id);
-	printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .e %04x\n", chip_id);
-
-	//	printk("_eth_dm9051_init: INFO: Chip ID verified: 0x%04x\n", chip_id);
 
 	/* Perform core reset */
 	dm9051_core_reset(dev);
-
-#if 1
-	/* Set MAC address */
-
-#if 0
-	//boot_banner();
-	//printk("*** " CONFIG_BOOT_BANNER_STRING " " BANNER_VERSION BANNER_POSTFIX " *** main.c\n");
-#endif
 
 #ifndef BANNER_VERSION
 #if defined(BUILD_VERSION) && !IS_EMPTY(BUILD_VERSION)
@@ -752,29 +726,20 @@ static int eth_dm9051_init(const struct device *dev)
 #endif /* BUILD_VERSION */
 #endif /* !BANNER_VERSION */
 
-	printk("\n(end.e=%d) %s\n", endc++, STRINGIFY(BUILD_VERSION));
+	/* Set MAC address */
 	dm9051_set_mac_address(dev, context->mac_address);
+
+	/* Configure receive */
+	dm9051_set_receive(dev);
+
+	/* Set carrier on after successful initialization */
+	context->iface_carrier_on_init = true;
+
+	printk("\n(end.e=%d) %s\n", endc++, STRINGIFY(BUILD_VERSION));
 	printk("_eth_dm9051_init: end.e (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
 	       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
-
-	/* Configure receive */
-	dm9051_set_receive(dev);
-	printk("_eth_dm9051_init: end.e (set receive, RCR_DEFAULT | RCR_RXEN) Chip ID: 0x%04x\n",
-	       chip_id);
-
-	/* Set carrier on after successful initialization */
-	context->iface_carrier_on_init = true;
-//	if (context->iface != NULL) {
-		printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .s\n");
-//		net_if_carrier_on(context->iface);
-		printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .e\n");
-//	}
-
-	// LOG_INF("%s: eth_dm9051_init.e", dev->name);
-	// printk("%s: eth_dm9051_init.e\n", dev->name);
-#endif
 	return 0;
 }
 
