@@ -224,7 +224,7 @@ static bool net_if_tx(struct net_if *iface, struct net_pkt *pkt)
 
 	create_time = net_pkt_create_time(pkt);
 
-	printk("[net_if.c][net_if_tx] iface %p pkt %p\n", iface, pkt); //.kjckjweds
+	//printk("[net_if.c][net_if_tx] iface %p pkt %p\n", iface, pkt); //.kjckjweds
 	debug_check_packet(pkt);
 
 	/* If there're any link callbacks, with such a callback receiving

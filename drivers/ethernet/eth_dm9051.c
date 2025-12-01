@@ -438,7 +438,7 @@ static int dm9051_rx_packet(const struct device *dev)
 	struct net_pkt *pkt;
 
 	if (!dm9051_rx_ready(dev)) {
-		return 0;
+		return 1; //0;
 	}
 
 	/* Read packet header */
@@ -468,8 +468,12 @@ static int dm9051_rx_packet(const struct device *dev)
 		return -ENOMEM;
 	}
 
-	/* Read packet data */
-	dm9051_read_mem(dev, net_pkt_data(pkt), rx_len);
+	/* Read packet data into buffer */
+	dm9051_read_mem(dev, pkt->buffer->data, rx_len);
+	
+	/* CRITICAL: Update buffer length after reading data */
+	net_buf_add(pkt->buffer, rx_len);
+	
 	dm9051_write_reg(dev, DM9051_ISR, 0x80);
 
 	net_pkt_set_iface(pkt, context->iface);
@@ -480,8 +484,50 @@ static int dm9051_rx_packet(const struct device *dev)
 		return -EIO;
 	}
 
-	LOG_DBG("%s: RX packet len=%u", dev->name, rx_len);
+	//LOG_DBG("%s: RX packet len=%u", dev->name, rx_len);
 	return 0;
+}
+
+/*******************************************************************************
+ * RX Thread
+ ******************************************************************************/
+
+/**
+ * @brief RX thread for polling and processing incoming packets
+ * @param arg1 Device structure pointer
+ * @param arg2 Unused
+ * @param arg3 Unused
+ */
+static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
+{
+	ARG_UNUSED(arg2);
+	ARG_UNUSED(arg3);
+
+	const struct device *dev = arg1;
+	struct dm9051_runtime *context = dev->data;
+
+	LOG_INF("%s: RX thread started", dev->name);
+	printk("%s: DM9051 RX thread started\n", dev->name);
+
+	while (1) {
+		/* Wait for semaphore signal or timeout (polling every 100ms) */
+		k_sem_take(&context->int_sem, K_MSEC(100));
+
+		/* Take semaphore to protect SPI access */
+		k_sem_take(&context->tx_rx_sem, K_FOREVER);
+
+		/* Process all available packets */
+		//while (dm9051_rx_ready(dev)) {
+		//	if (dm9051_rx_packet(dev) < 0) {
+		//		LOG_ERR("%s: RX packet processing failed", dev->name);
+		//		break;
+		//	}
+		//}
+		while (dm9051_rx_packet(dev) == 0) ;
+
+		/* Release semaphore */
+		k_sem_give(&context->tx_rx_sem);
+	}
 }
 
 /*******************************************************************************
@@ -573,6 +619,18 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 
 	context->iface_initialized = true;
 
+	/* Create RX thread for packet reception */
+	k_thread_create(&context->thread, context->thread_stack,
+			CONFIG_ETH_DM9051_RX_THREAD_STACK_SIZE,
+			dm9051_rx_thread,
+			(void *)dev, NULL, NULL,
+			K_PRIO_COOP(2),  /* High priority for network RX */
+			0, K_NO_WAIT);
+	k_thread_name_set(&context->thread, "dm9051_rx");
+
+	printk("%s: RX thread created\n", dev->name);
+	LOG_INF("%s: RX thread created", dev->name);
+
 	// LOG_INF("%s: Interface initialized", dev->name);
 	// printk("_dm9051_iface_init: iface init.e, %s\n", dev->name);
 	printk("\n(end.e=%d) %s\n", through_c, "iface_init");
@@ -606,18 +664,19 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 
 	/* Print SPI configuration */
-	// LOG_INF("%s: SPI frequency: %u Hz (%u MHz)", dev->name, config->spi.config.frequency,
-	// 	config->spi.config.frequency / 1000000);
-
+	//LOG_INF("%s: SPI frequency: %u Hz (%u MHz)", dev->name, config->spi.config.frequency,
+	//	config->spi.config.frequency / 1000000);
+#if 0
 	/* Verify CS GPIO is ready */
-	// if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
-	// 	LOG_ERR("%s: CS GPIO not ready", dev->name);
-	// 	return -ENODEV;
-	// }
+	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
+		LOG_ERR("%s: CS GPIO not ready", dev->name);
+		return -ENODEV;
+	}
 
 	/* Initialize CS pin */
 	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
-
+#endif
+#if 1
 	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
 	if (!device_is_ready(gpio1)) {
@@ -629,6 +688,7 @@ static int eth_dm9051_init(const struct device *dev)
 		printk("_eth_dm9051_init: ERROR: P1.8 - Failed to configure: %d\n", err);
 		return -ENODEV;
 	}
+#endif
 
 	/* Print detailed GPIO information */
 	printk("_eth_dm9051_init: INFO: ========================================\n");
@@ -645,6 +705,7 @@ static int eth_dm9051_init(const struct device *dev)
 		k_msleep(50);
 		chip_id = dm9051_get_chipid(dev);
 		if (chip_id == 0x9051 || chip_id == 0x9058) {
+			printk("INFO: DM9051 chip ID verified inited ok: 0x%04x\n", chip_id);
 			break;
 		}
 	}
@@ -658,14 +719,17 @@ static int eth_dm9051_init(const struct device *dev)
 		while (1) {
 			chip_id = dm9051_get_chipid(dev);
 			if (chip_id == 0x9051 || chip_id == 0x9058) {
-				LOG_INF("INFO: DM9051 chip ID verified: 0x%04x", chip_id);
+				printk("\nINFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
 				break;
 			}
-			LOG_INF("LOOP-TEST: DM9051 chip ID verification failed: 0x%04x", chip_id);
+			printk(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
+			printk(" (LOOP-TEST: delay)");
 			k_msleep(1000);
 		}
 		return -ENODEV;
 	}
+	printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .s %04x\n", chip_id);
+	printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .e %04x\n", chip_id);
 
 	//	printk("_eth_dm9051_init: INFO: Chip ID verified: 0x%04x\n", chip_id);
 
@@ -702,10 +766,11 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
-	if (context->iface != NULL) {
-		net_if_carrier_on(context->iface);
-		printk("_eth_dm9051_init: Carrier set ON for interface\n");
-	}
+//	if (context->iface != NULL) {
+		printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .s\n");
+//		net_if_carrier_on(context->iface);
+		printk("_eth_dm9051_init: Carrier set ON for interface - - - - - - - - - - - .e\n");
+//	}
 
 	// LOG_INF("%s: eth_dm9051_init.e", dev->name);
 	// printk("%s: eth_dm9051_init.e\n", dev->name);
