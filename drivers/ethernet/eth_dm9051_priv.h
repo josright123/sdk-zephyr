@@ -12,15 +12,16 @@
 #ifndef _DM9051_
 #define _DM9051_
 
-#define PLUG_ENABLE_INT
-#ifdef PLUG_ENABLE_INT
-#define DMPLUG_INT //(INT39)
+//#define PLUG_ENABLE_INT
+//#ifdef PLUG_ENABLE_INT
+//#define DMPLUG_INT //(INT39)
 
 // #define PLUG_INT_CLKOUT
-#ifdef PLUG_INT_CLKOUT
-#define INT_CLKOUT //(INT39_CLKOUT)
-#endif
-#endif
+// #ifdef PLUG_INT_CLKOUT
+// #define INT_CLKOUT //(INT39_CLKOUT)
+// #endif
+
+//#endif
 
 #define MAC_ADDR_LENGTH (6)
 typedef uint8_t mac_t[MAC_ADDR_LENGTH];

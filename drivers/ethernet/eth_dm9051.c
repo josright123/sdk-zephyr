@@ -26,6 +26,32 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "eth_dm9051_priv.h"
 
+// #ifdef DMPLUG_INT //(INT39)
+
+/* Operating modes */
+typedef enum {
+	MODE_POLL = 0,
+	MODE_INTERRUPT = 1,
+} inr_mode_type;
+
+/* Driver configuration structure */
+struct driver_config {
+	const char *release_version;
+	inr_mode_type interrupt;
+};
+
+/* Default driver configuration */
+const struct driver_config confdata = {
+	.release_version = "zephyr_dm9051_v3.1.0_v1.0",
+#ifdef DMPLUG_INT
+	.interrupt = MODE_INTERRUPT, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
+#else
+	.interrupt = MODE_POLL, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
+#endif
+};
+
+#define cint (confdata.interrupt)
+
 /* DM9051 Constants */
 #define DM9051_PHY     (0x40)
 #define DM9051_PKT_RDY (0x01)
@@ -438,7 +464,7 @@ static int dm9051_rx_packet(const struct device *dev)
 	struct net_pkt *pkt;
 
 	if (!dm9051_rx_ready(dev)) {
-		return 1; //0;
+		return 1; // 0;
 	}
 
 	/* Read packet header */
@@ -470,10 +496,10 @@ static int dm9051_rx_packet(const struct device *dev)
 
 	/* Read packet data into buffer */
 	dm9051_read_mem(dev, pkt->buffer->data, rx_len);
-	
+
 	/* CRITICAL: Update buffer length after reading data */
 	net_buf_add(pkt->buffer, rx_len);
-	
+
 	dm9051_write_reg(dev, DM9051_ISR, 0x80);
 
 	net_pkt_set_iface(pkt, context->iface);
@@ -484,7 +510,7 @@ static int dm9051_rx_packet(const struct device *dev)
 		return -EIO;
 	}
 
-	//LOG_DBG("%s: RX packet len=%u", dev->name, rx_len);
+	// LOG_DBG("%s: RX packet len=%u", dev->name, rx_len);
 	return 0;
 }
 
@@ -514,7 +540,8 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Process all available packets */
-		while (dm9051_rx_packet(dev) == 0) ;
+		while (dm9051_rx_packet(dev) == 0)
+			;
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
@@ -609,10 +636,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 
 	/* Create RX thread for packet reception */
 	k_thread_create(&context->thread, context->thread_stack,
-			CONFIG_ETH_DM9051_RX_THREAD_STACK_SIZE,
-			dm9051_rx_thread,
-			(void *)dev, NULL, NULL,
-			K_PRIO_COOP(2),  /* High priority for network RX */
+			CONFIG_ETH_DM9051_RX_THREAD_STACK_SIZE, dm9051_rx_thread, (void *)dev, NULL,
+			NULL, K_PRIO_COOP(2), /* High priority for network RX */
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
@@ -633,7 +658,7 @@ void dm9051_init_log(const struct device *dev)
 	printk("_eth_dm9051_init: INFO: ========================================\n");
 	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
 	printk("_eth_dm9051_init: INFO: SPI Bus: %s (%u MHz)\n", config->spi.bus->name,
-		   config->spi.config.frequency / 1000000);
+	       config->spi.config.frequency / 1000000);
 	printk("_eth_dm9051_init: INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard "
 	       "code Pin: %d)\n",
 	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
@@ -739,8 +764,7 @@ static int eth_dm9051_init(const struct device *dev)
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
-	       context->mac_address[3], context->mac_address[4], context->mac_address[5],
-		   chip_id);
+	       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
 	return 0;
 }
 
