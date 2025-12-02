@@ -372,7 +372,11 @@ static void dm9051_set_receive(const struct device *dev)
 
 	/* Configure interrupts */
 #ifdef DMPLUG_INT39
-	dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
+	const struct dm9051_config *config = dev->config;
+	if (config->interrupt.port)
+		dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
+	else
+		dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
 #else
 	dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
 #endif
@@ -736,24 +740,26 @@ static int eth_dm9051_init(const struct device *dev)
 
 	#if DMPLUG_INT39
 	if (cint) {
-		if (!gpio_is_ready_dt(&config->interrupt)) {
-			LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
-			return -EINVAL;
+		if (config->interrupt.port) {
+			if (!gpio_is_ready_dt(&config->interrupt)) {
+				LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
+				return -EINVAL;
+			}
+
+			if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
+				LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
+				return -EINVAL;
+			}
+
+			gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
+					   BIT(config->interrupt.pin));
+
+			if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
+				return -EINVAL;
+			}
+
+			gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
 		}
-
-		if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
-			LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
-			return -EINVAL;
-		}
-
-		gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
-				   BIT(config->interrupt.pin));
-
-		if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
-			return -EINVAL;
-		}
-
-		gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
 	}
 	#endif
 
@@ -791,16 +797,8 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Perform core reset */
 	dm9051_core_reset(dev);
 
-#ifndef BANNER_VERSION
-#if defined(BUILD_VERSION) && !IS_EMPTY(BUILD_VERSION)
-// #define BANNER_VERSION STRINGIFY(BUILD_VERSION)
-#else
-// #define BANNER_VERSION KERNEL_VERSION_STRING
-#endif /* BUILD_VERSION */
-#endif /* !BANNER_VERSION */
-
 	/* Set MAC address */
-	dm9051_set_mac_address(dev, context->mac_address);
+	dm9051_set_mac_address(dev, context->mac_address); //to be checked! more!
 
 	/* Configure receive */
 	dm9051_set_receive(dev);
