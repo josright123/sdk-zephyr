@@ -12,17 +12,6 @@
 #ifndef _DM9051_
 #define _DM9051_
 
-//#define PLUG_ENABLE_INT
-//#ifdef PLUG_ENABLE_INT
-//#define DMPLUG_INT //(INT39)
-
-// #define PLUG_INT_CLKOUT
-// #ifdef PLUG_INT_CLKOUT
-// #define INT_CLKOUT //(INT39_CLKOUT)
-// #endif
-
-//#endif
-
 #define MAC_ADDR_LENGTH (6)
 typedef uint8_t mac_t[MAC_ADDR_LENGTH];
 
@@ -232,28 +221,6 @@ typedef uint8_t mac_t[MAC_ADDR_LENGTH];
 // #define FCR_DEFAULT_CONF     FCR_DEFAULT
 #define SMCR_DEFAULT  (0x0)
 #define PBCR_MAXDRIVE (0x44)
-
-// struct eth_enc28j60_config {
-//	struct spi_dt_spec spi;
-//	struct gpio_dt_spec interrupt;
-//	uint8_t full_duplex;
-//	int32_t timeout;
-//	uint8_t hw_rx_filter;
-//	bool random_mac;
-// };
-
-// struct eth_enc28j60_runtime {
-//	struct net_if *iface;
-////	K_KERNEL_STACK_MEMBER(thread_stack,
-////			      CONFIG_ETH_ENC28J60_RX_THREAD_STACK_SIZE);
-////	struct k_thread thread;
-////	uint8_t mac_address[6];
-////	struct gpio_callback gpio_cb;
-////	struct k_sem tx_rx_sem;
-////	struct k_sem int_sem;
-////	bool iface_initialized : 1;
-////	bool iface_carrier_on_init : 1;
-//};
 
 struct dm9051_config {
 	struct spi_dt_spec spi;
