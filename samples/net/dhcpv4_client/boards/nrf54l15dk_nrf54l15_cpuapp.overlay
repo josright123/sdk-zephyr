@@ -51,7 +51,7 @@
 &spi21 {
 	status = "okay";
 	clocks = <&hfpll>;
-	/* cs-gpios = <&gpio1 8 GPIO_ACTIVE_LOW>; */
+	cs-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;  /* CS on P1.2 */
 	pinctrl-0 = <&spi21_default>;
 	pinctrl-1 = <&spi21_sleep>;
 	pinctrl-names = "default", "sleep";

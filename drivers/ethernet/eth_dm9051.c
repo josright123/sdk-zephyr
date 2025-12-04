@@ -57,29 +57,11 @@ const struct driver_config confdata = {
  * Hardware Abstraction Layer - SPI Operations
  ******************************************************************************/
 
-/**
- * @brief SPI transfer single byte
- * @param dev Device structure
- * @param byte Byte to transmit
- * @return Received byte
+/* Note: All SPI operations use spi_transceive_dt() or spi_write_dt() directly.
+ * CS (Chip Select) is automatically controlled by the SPI driver layer.
+ * The cs-gpios property in device tree specifies which GPIO pin to use for CS.
+ * We use static buffers on stack (like W5500) instead of k_malloc.
  */
-static uint8_t dm9051_spi_xfer(const struct device *dev, uint8_t byte)
-{
-	const struct dm9051_config *config = dev->config;
-	uint8_t rx_data = 0;
-	struct spi_buf tx_buf = {.buf = &byte, .len = 1};
-	struct spi_buf rx_buf = {.buf = &rx_data, .len = 1};
-	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
-	const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
-	int ret;
-
-	ret = spi_transceive_dt(&config->spi, &tx, &rx);
-	if (ret < 0) {
-		printk("ERROR: SPI transfer failed: %d\n", ret);
-		return 0xFF;
-	}
-	return rx_data;
-}
 
 /**
  * @brief Read single register from DM9051
@@ -89,24 +71,22 @@ static uint8_t dm9051_spi_xfer(const struct device *dev, uint8_t byte)
  */
 static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 {
-	uint8_t result;
+	const struct dm9051_config *config = dev->config;
+	uint8_t tx_data[2] = {reg | OPC_REG_R, 0x00};
+	uint8_t rx_data[2] = {0};
 
-	/* CS low */
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 2, 0);
-	//	const struct dm9051_config *config = dev->config;
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	struct spi_buf tx_buf = {.buf = tx_data, .len = 2};
+	struct spi_buf rx_buf = {.buf = rx_data, .len = 2};
+	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+	const struct spi_buf_set rx = {.buffers = &rx_buf, .count = 1};
 
-	/* Send register address with read opcode */
-	dm9051_spi_xfer(dev, reg | OPC_REG_R);
-	/* Read data */
-	result = dm9051_spi_xfer(dev, 0);
+	int ret = spi_transceive_dt(&config->spi, &tx, &rx);
+	if (ret < 0) {
+		LOG_ERR("SPI read register failed: %d", ret);
+		return 0xFF;
+	}
 
-	/* CS high */
-	gpio_pin_set(gpio1, 2, 1);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
-
-	return result;
+	return rx_data[1];
 }
 
 /**
@@ -117,20 +97,16 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
  */
 static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 {
-	/* CS low */
-	// const struct dm9051_config *config = dev->config;
-	//   gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 2, 0);
+	const struct dm9051_config *config = dev->config;
+	uint8_t tx_data[2] = {reg | OPC_REG_W, val};
 
-	/* Send register address with write opcode */
-	dm9051_spi_xfer(dev, reg | OPC_REG_W);
-	/* Write data */
-	dm9051_spi_xfer(dev, val);
+	struct spi_buf tx_buf = {.buf = tx_data, .len = 2};
+	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
 
-	/* CS high */
-	gpio_pin_set(gpio1, 2, 1);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
+	int ret = spi_write_dt(&config->spi, &tx);
+	if (ret < 0) {
+		LOG_ERR("SPI write register failed: %d", ret);
+	}
 }
 
 /**
@@ -141,24 +117,22 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
  */
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len)
 {
-	// const struct dm9051_config *config = dev->config;
+	const struct dm9051_config *config = dev->config;
+	uint8_t cmd = DM9051_MRCMD | OPC_REG_R;
 
-	/* CS low */
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 2, 0);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	const struct spi_buf tx_buf = {.buf = &cmd, .len = 1};
+	const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
 
-	/* Send memory read command */
-	dm9051_spi_xfer(dev, DM9051_MRCMD | OPC_REG_R);
+	const struct spi_buf rx_buf[2] = {
+		{.buf = NULL, .len = 1}, /* Discard command echo */
+		{.buf = buf, .len = len} /* Actual data */
+	};
+	const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
 
-	/* Read data */
-	for (uint16_t i = 0; i < len; i++) {
-		buf[i] = dm9051_spi_xfer(dev, 0);
+	int ret = spi_transceive_dt(&config->spi, &tx, &rx);
+	if (ret < 0) {
+		LOG_ERR("SPI read memory failed: %d", ret);
 	}
-
-	/* CS high */
-	gpio_pin_set(gpio1, 2, 1);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
 /**
@@ -169,24 +143,19 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
  */
 static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint16_t len)
 {
-	// const struct dm9051_config *config = dev->config;
+	const struct dm9051_config *config = dev->config;
+	uint8_t cmd = DM9051_MWCMD | OPC_REG_W;
 
-	/* CS low */
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 2, 0);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	const struct spi_buf tx_buf[2] = {
+		{.buf = &cmd, .len = 1},         /* Command byte */
+		{.buf = (void *)buf, .len = len} /* Data bytes */
+	};
+	const struct spi_buf_set tx = {.buffers = tx_buf, .count = 2};
 
-	/* Send memory write command */
-	dm9051_spi_xfer(dev, DM9051_MWCMD | OPC_REG_W);
-
-	/* Write data */
-	for (uint16_t i = 0; i < len; i++) {
-		dm9051_spi_xfer(dev, buf[i]);
+	int ret = spi_write_dt(&config->spi, &tx);
+	if (ret < 0) {
+		LOG_ERR("SPI write memory failed: %d", ret);
 	}
-
-	/* CS high */
-	gpio_pin_set(gpio1, 2, 1);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
 /*******************************************************************************
@@ -708,34 +677,13 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Print SPI configuration */
 	printk("\n\n");
-	printk("_eth_dm9051_init: eth_dm9051_init.s8.5\n");
+	printk("_eth_dm9051_init: eth_dm9051_init.s8.6\n");
 	dm9051_init_log(dev); /* Print detailed GPIO information */
-	printk("_eth_dm9051_init: CS manually by P1.02\n");
+	printk("_eth_dm9051_init: CS automatically controlled by SPI driver (P1.2)\n");
 
-#if 1
-	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	if (!device_is_ready(gpio1)) {
-		printk("_eth_dm9051_init: ERROR: GPIO1 device not ready!\n");
-		return -ENODEV;
-	}
-	int err = gpio_pin_configure(gpio1, 2, GPIO_OUTPUT_INACTIVE);
-	if (err) {
-		printk("_eth_dm9051_init: ERROR: CS GPIO - Failed to configure: %d\n", err);
-		return -ENODEV;
-	}
-#endif
-
-#if 0
-	/* Verify CS GPIO is ready */
-	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
-		LOG_ERR("%s: CS GPIO not ready", dev->name);
-		return -ENODEV;
-	}
-
-	/* Initialize CS pin */
-	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
-#endif
+	/* CS GPIO is automatically configured and controlled by SPI driver layer.
+	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
+	 */
 
 #if DMPLUG_INT39
 	if (cint) {
