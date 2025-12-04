@@ -26,27 +26,18 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "eth_dm9051_priv.h"
 
-/* Operating modes */
-typedef enum {
-	MODE_POLL = 0,
-	MODE_INTERRUPT = 1,
-} inr_mode_type;
-
 /* Driver configuration structure */
 struct driver_config {
 	const char *release_version;
-	inr_mode_type interrupt;
 };
 
 /* Default driver configuration */
 const struct driver_config confdata = {
 	.release_version = "zephyr_dm9051_v3.1.0_v1.0",
-	// #ifdef DMPLUG_INT39 //(INT39)
-	//.interrupt = MODE_INTERRUPT, /* MODE_INTERRUPT or MODE_INTERRUPT_CLKOUT */
-	.interrupt = MODE_POLL,
 };
 
-#define cint (confdata.interrupt)
+/* Helper macro to check if interrupt mode is enabled based on device tree configuration */
+#define cint(dev) (((const struct dm9051_config *)(dev)->config)->interrupt.port != NULL)
 
 /* DM9051 Constants */
 #define DM9051_PHY     (0x40)
@@ -215,14 +206,22 @@ static void dm9051_phy_write(const struct device *dev, uint16_t reg, uint16_t va
 /*******************************************************************************
  * Core Driver Functions
  ******************************************************************************/
-#if DMPLUG_INT39
+
+/**
+ * @brief GPIO interrupt callback for DM9051
+ * @param dev GPIO device (unused)
+ * @param cb Callback structure
+ * @param pins Pins that triggered the interrupt
+ */
 static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
+	ARG_UNUSED(dev);
+	ARG_UNUSED(pins);
+
 	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
 
 	k_sem_give(&context->int_sem);
 }
-#endif
 
 /**
  * @brief Perform core reset of DM9051
@@ -332,22 +331,19 @@ static void dm9051_set_receive(const struct device *dev)
 	dm9051_write_reg(dev, DM9051_FCR, FCR_DEFAULT);
 	dm9051_phy_write(dev, PHY_ADV_REG, 0x0400 | 0x01e1);
 
-	/* Configure interrupts */
-#ifdef DMPLUG_INT39
-	const struct dm9051_config *config = dev->config;
-	if (config->interrupt.port) {
+	/* Configure interrupts based on device tree configuration */
+	if (cint(dev)) {
+		/* Interrupt mode enabled via int-gpios in device tree */
 		dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
 	} else {
+		/* Polling mode (no int-gpios defined) */
 		dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
 	}
-#else
-	dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
-#endif
 
 	/* Enable receiver */
 	dm9051_write_reg(dev, DM9051_RCR, RCR_DEFAULT | RCR_RXEN);
 
-	LOG_DBG("%s: Receive configured", dev->name);
+	LOG_DBG("%s: Receive configured (%s mode)", dev->name, cint(dev) ? "INTERRUPT" : "POLLING");
 }
 
 /*******************************************************************************
@@ -506,18 +502,15 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 	struct dm9051_runtime *context = dev->data;
 
 	while (1) {
-		if (cint) {
-#if DMPLUG_INT39
-			/* Wait for semaphore signal or timeout (polling every 100ms) */
+		if (cint(dev)) {
+			/* Interrupt mode: wait for GPIO interrupt signal */
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
 			if (res != 0) {
-				/* semaphore timeout period expired, do something else */
-				printk("k_sem_take(int_sem), timeout for 100ms\n");
+				/* Semaphore timeout - no interrupt received */
 				continue;
 			}
-#endif
 		} else {
-			/* Wait for semaphore signal or timeout (polling every 100ms) */
+			/* Polling mode: periodic check every 10ms */
 			k_sem_take(&context->int_sem, K_MSEC(10));
 		}
 
@@ -531,11 +524,9 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
 
-		if (cint) {
-#if DMPLUG_INT39
+		if (cint(dev)) {
+			/* In interrupt mode, re-enable interrupt by giving semaphore back */
 			k_sem_give(&context->int_sem);
-			printk("k_sem_give(int_sem), extra-test...\n");
-#endif
 		}
 	}
 }
@@ -685,30 +676,33 @@ static int eth_dm9051_init(const struct device *dev)
 	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
 	 */
 
-#if DMPLUG_INT39
-	if (cint) {
-		if (config->interrupt.port) {
-			if (!gpio_is_ready_dt(&config->interrupt)) {
-				LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
-				return -EINVAL;
-			}
+	/* Configure interrupt GPIO if int-gpios is defined in device tree */
+	if (cint(dev)) {
+		printk("_eth_dm9051_init: Configuring INTERRUPT mode\n");
 
-			if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
-				LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
-				return -EINVAL;
-			}
-
-			gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
-					   BIT(config->interrupt.pin));
-
-			if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
-				return -EINVAL;
-			}
-
-			gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
+		if (!gpio_is_ready_dt(&config->interrupt)) {
+			LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
+			return -EINVAL;
 		}
+
+		if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
+			LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
+			return -EINVAL;
+		}
+
+		gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
+				   BIT(config->interrupt.pin));
+
+		if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
+			return -EINVAL;
+		}
+
+		gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
+		printk("_eth_dm9051_init: Interrupt GPIO configured - Port: %s, Pin: %d\n",
+		       config->interrupt.port->name, config->interrupt.pin);
+	} else {
+		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
 	}
-#endif
 
 	/* Try reading chip ID multiple times */
 	for (int attempt = 0; attempt < 3; attempt++) {
@@ -751,7 +745,7 @@ static int eth_dm9051_init(const struct device *dev)
 	context->iface_carrier_on_init = true;
 
 	printk("\n(end.e=%d) %s %s\n", endc++,
-	       STRINGIFY(BUILD_VERSION), cint ? "INT mode" : "POLL mode");
+	       STRINGIFY(BUILD_VERSION), cint(dev) ? "INT mode" : "POLL mode");
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],

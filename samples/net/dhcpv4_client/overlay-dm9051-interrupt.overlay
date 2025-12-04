@@ -1,0 +1,30 @@
+/*
+ * Device Tree overlay for DM9051 SPI Ethernet Controller - INTERRUPT MODE
+ * 
+ * This overlay configures the DM9051 Ethernet controller in INTERRUPT mode.
+ * The int-gpios property enables interrupt-driven packet reception.
+ * 
+ * To use this overlay:
+ * west build -b nrf54l15dk/nrf54l15/cpuapp -- -DDTC_OVERLAY_FILE="overlay-dm9051-interrupt.overlay"
+ */
+
+&spi00 {
+	status = "okay";
+	
+	dm9051: dm9051@0 {
+		compatible = "davicom,dm9051";
+		reg = <0>;
+		spi-max-frequency = <20000000>;
+		
+		/* Interrupt GPIO configuration - enables INTERRUPT mode */
+		/* Adjust the GPIO port and pin according to your hardware */
+		int-gpios = <&gpio0 5 GPIO_ACTIVE_LOW>;
+		
+		/* MAC address (optional, can be set via DHCP) */
+		local-mac-address = [00 60 6e 90 51 11];
+	};
+};
+
+&gpio0 {
+	status = "okay";
+};
