@@ -89,18 +89,12 @@ static uint8_t dm9051_spi_xfer(const struct device *dev, uint8_t byte)
  */
 static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 {
-	//const struct dm9051_config *config = dev->config;
 	uint8_t result;
 
 	/* CS low */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-
-	//	int err = gpio_pin_configure(gpio1, pin, GPIO_OUTPUT_INACTIVE);
-	//	if (err) {
-	//		printk("ERROR: P1.%d - Failed to configure: %d\n", pin, err);
-	//		continue;
-	//	}
-	gpio_pin_set(gpio1, 8, 0);
+	gpio_pin_set(gpio1, 2, 0);
+	//	const struct dm9051_config *config = dev->config;
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send register address with read opcode */
@@ -109,7 +103,7 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
 	result = dm9051_spi_xfer(dev, 0);
 
 	/* CS high */
-	gpio_pin_set(gpio1, 8, 1);
+	gpio_pin_set(gpio1, 2, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 
 	return result;
@@ -123,12 +117,11 @@ static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg)
  */
 static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 {
-	//const struct dm9051_config *config = dev->config;
-
 	/* CS low */
+	// const struct dm9051_config *config = dev->config;
+	//   gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 8, 0);
-	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
+	gpio_pin_set(gpio1, 2, 0);
 
 	/* Send register address with write opcode */
 	dm9051_spi_xfer(dev, reg | OPC_REG_W);
@@ -136,7 +129,7 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
 	dm9051_spi_xfer(dev, val);
 
 	/* CS high */
-	gpio_pin_set(gpio1, 8, 1);
+	gpio_pin_set(gpio1, 2, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -148,11 +141,11 @@ static void dm9051_write_reg(const struct device *dev, uint8_t reg, uint8_t val)
  */
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len)
 {
-	//const struct dm9051_config *config = dev->config;
+	// const struct dm9051_config *config = dev->config;
 
 	/* CS low */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 8, 0);
+	gpio_pin_set(gpio1, 2, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory read command */
@@ -164,7 +157,7 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	}
 
 	/* CS high */
-	gpio_pin_set(gpio1, 8, 1);
+	gpio_pin_set(gpio1, 2, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -176,11 +169,11 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
  */
 static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint16_t len)
 {
-	//const struct dm9051_config *config = dev->config;
+	// const struct dm9051_config *config = dev->config;
 
 	/* CS low */
 	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	gpio_pin_set(gpio1, 8, 0);
+	gpio_pin_set(gpio1, 2, 0);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 0);
 
 	/* Send memory write command */
@@ -192,7 +185,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	}
 
 	/* CS high */
-	gpio_pin_set(gpio1, 8, 1);
+	gpio_pin_set(gpio1, 2, 1);
 	//	gpio_pin_set_dt(&config->spi.config.cs.gpio, 1);
 }
 
@@ -373,10 +366,11 @@ static void dm9051_set_receive(const struct device *dev)
 	/* Configure interrupts */
 #ifdef DMPLUG_INT39
 	const struct dm9051_config *config = dev->config;
-	if (config->interrupt.port)
+	if (config->interrupt.port) {
 		dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
-	else
+	} else {
 		dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
+	}
 #else
 	dm9051_write_reg(dev, DM9051_IMR, IMR_POL_DEFAULT);
 #endif
@@ -544,7 +538,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 	while (1) {
 		if (cint) {
-			#if DMPLUG_INT39
+#if DMPLUG_INT39
 			/* Wait for semaphore signal or timeout (polling every 100ms) */
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
 			if (res != 0) {
@@ -552,7 +546,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 				printk("k_sem_take(int_sem), timeout for 100ms\n");
 				continue;
 			}
-			#endif
+#endif
 		} else {
 			/* Wait for semaphore signal or timeout (polling every 100ms) */
 			k_sem_take(&context->int_sem, K_MSEC(10));
@@ -567,12 +561,12 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
-		
+
 		if (cint) {
-			#if DMPLUG_INT39
+#if DMPLUG_INT39
 			k_sem_give(&context->int_sem);
 			printk("k_sem_give(int_sem), extra-test...\n");
-			#endif
+#endif
 		}
 	}
 }
@@ -683,14 +677,16 @@ static const struct ethernet_api api_funcs = {
 
 void dm9051_init_log(const struct device *dev)
 {
-	const struct dm9051_config *config = dev->config;
+	// const struct dm9051_config *config = dev->config;
 	printk("_eth_dm9051_init: INFO: ========================================\n");
 	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
-	printk("_eth_dm9051_init: INFO: SPI Bus: %s (%u MHz)\n", config->spi.bus->name,
-	       config->spi.config.frequency / 1000000);
-	printk("_eth_dm9051_init: INFO: CS GPIO ready - Port: %s, Pin: %d  (but now manual by hard "
-	       "code Pin: %d)\n",
-	       config->spi.config.cs.gpio.port->name, config->spi.config.cs.gpio.pin, 8);
+	printk("_eth_dm9051_init: INFO: dev->config->spi.bus->name: %s\n",
+	       ((struct dm9051_config *)dev->config)->spi.bus->name);
+	printk("_eth_dm9051_init: INFO: dev->config->spi.config.frequency: %u MHz\n",
+	       ((struct dm9051_config *)dev->config)->spi.config.frequency / 1000000);
+	// printk("_eth_dm9051_init: INFO: dev->config->spi.config.cs.gpio.port->name: %s, Pin: %d "
+	//" (but now hard code Pin: %d)\n",
+	// dev->config->spi.config.cs.gpio.port->name, dev->config->spi.config.cs.gpio.pin, 2);
 	printk("_eth_dm9051_init: INFO: ========================================\n");
 }
 
@@ -704,9 +700,6 @@ static int eth_dm9051_init(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 	uint16_t chip_id;
 
-	printk("\n\n");
-	printk("_eth_dm9051_init: eth_dm9051_init.s\n");
-
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
 		printk("_eth_dm9051_init: SPI not ready\n");
@@ -714,6 +707,25 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 
 	/* Print SPI configuration */
+	printk("\n\n");
+	printk("_eth_dm9051_init: eth_dm9051_init.s8.5\n");
+	dm9051_init_log(dev); /* Print detailed GPIO information */
+	printk("_eth_dm9051_init: CS manually by P1.02\n");
+
+#if 1
+	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
+	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
+	if (!device_is_ready(gpio1)) {
+		printk("_eth_dm9051_init: ERROR: GPIO1 device not ready!\n");
+		return -ENODEV;
+	}
+	int err = gpio_pin_configure(gpio1, 2, GPIO_OUTPUT_INACTIVE);
+	if (err) {
+		printk("_eth_dm9051_init: ERROR: CS GPIO - Failed to configure: %d\n", err);
+		return -ENODEV;
+	}
+#endif
+
 #if 0
 	/* Verify CS GPIO is ready */
 	if (!gpio_is_ready_dt(&config->spi.config.cs.gpio)) {
@@ -724,21 +736,8 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Initialize CS pin */
 	gpio_pin_configure_dt(&config->spi.config.cs.gpio, GPIO_OUTPUT_INACTIVE);
 #endif
-#if 1
-	/* now manual by hard code Pin: 8: Test GPIO1 multiple pins to find working alternatives */
-	const struct device *gpio1 = DEVICE_DT_GET(DT_NODELABEL(gpio1));
-	if (!device_is_ready(gpio1)) {
-		printk("_eth_dm9051_init: ERROR: GPIO1 device not ready!\n");
-		return -ENODEV;
-	}
-	int err = gpio_pin_configure(gpio1, 8, GPIO_OUTPUT_INACTIVE);
-	if (err) {
-		printk("_eth_dm9051_init: ERROR: P1.8 - Failed to configure: %d\n", err);
-		return -ENODEV;
-	}
-#endif
 
-	#if DMPLUG_INT39
+#if DMPLUG_INT39
 	if (cint) {
 		if (config->interrupt.port) {
 			if (!gpio_is_ready_dt(&config->interrupt)) {
@@ -761,10 +760,7 @@ static int eth_dm9051_init(const struct device *dev)
 			gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
 		}
 	}
-	#endif
-
-	/* Print detailed GPIO information */
-	dm9051_init_log(dev);
+#endif
 
 	/* Try reading chip ID multiple times */
 	for (int attempt = 0; attempt < 3; attempt++) {
@@ -798,7 +794,7 @@ static int eth_dm9051_init(const struct device *dev)
 	dm9051_core_reset(dev);
 
 	/* Set MAC address */
-	dm9051_set_mac_address(dev, context->mac_address); //to be checked! more!
+	dm9051_set_mac_address(dev, context->mac_address); // to be checked! more!
 
 	/* Configure receive */
 	dm9051_set_receive(dev);
@@ -806,7 +802,8 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
 
-	printk("\n(end.e=%d) %s %s\n", endc++, STRINGIFY(BUILD_VERSION), cint ? "INT mode" : "POLL mode");
+	printk("\n(end.e=%d) %s %s\n", endc++,
+	       STRINGIFY(BUILD_VERSION), cint ? "INT mode" : "POLL mode");
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
