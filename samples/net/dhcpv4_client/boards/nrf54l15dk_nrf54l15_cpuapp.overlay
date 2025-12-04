@@ -66,3 +66,13 @@
 		local-mac-address = [00 11 22 33 44 55];
 	};
 };
+
+/* Disable NFCT to free up NFC pins for GPIO usage */
+&nfct {
+	status = "disabled";
+};
+
+/* Configure UICR to use NFCT pins as GPIOs */
+&uicr {
+	nfct-pins-as-gpios;
+};
