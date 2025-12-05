@@ -159,7 +159,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
  * @param reg PHY register address
  * @return PHY register value
  */
-#if 0
+#if 1
 static uint16_t dm9051_phy_read(const struct device *dev, uint16_t reg)
 {
 	uint16_t value;
@@ -171,6 +171,10 @@ static uint16_t dm9051_phy_read(const struct device *dev, uint16_t reg)
 
 	while ((dm9051_read_reg(dev, DM9051_EPCR) & 0x01) && timeout--) {
 		k_busy_wait(1);
+	}
+
+	if (dm9051_read_reg(dev, DM9051_EPCR) & 0x01) {
+		return 0xffff;
 	}
 
 	dm9051_write_reg(dev, DM9051_EPCR, 0x00);
@@ -487,6 +491,44 @@ static int dm9051_rx_packet(const struct device *dev)
  * RX Thread
  ******************************************************************************/
 
+extern int endc;
+
+static uint8_t dm9051_link_status(const struct device *dev)
+{
+	// uint16_t bmsr;
+	uint8_t nsr;
+	struct dm9051_runtime *context = dev->data;
+
+	// bmsr = dm9051_phy_read(dev, PHY_STATUS_REG);
+	nsr = dm9051_read_reg(dev, DM9051_NSR);
+	// if (bmsr == 0xffff) {
+	//	LOG_ERR("%s: PHY read failed", dev->name);
+	//	return;
+	// }
+	if (nsr == 0xff) {
+		LOG_ERR("%s: NSR read failed", dev->name);
+		return 0xff;
+	}
+
+	// if (bmsr & 0x01) --- PHY_STATUS_LINK = 0x0004
+	if (nsr & NSR_LINKST) {
+		if (context->link_up != true) {
+			printk("\n(link_status.o=%d)\n", endc++);
+			LOG_INF("%s: Link up", dev->name);
+			context->link_up = true;
+			net_eth_carrier_on(context->iface);
+		}
+	} else {
+		if (context->link_up != false) {
+			printk("\n(link_status.x=%d)\n", endc++);
+			LOG_INF("%s: Link down", dev->name);
+			context->link_up = false;
+			net_eth_carrier_off(context->iface);
+		}
+	}
+	return nsr;
+}
+
 /**
  * @brief RX thread for polling and processing incoming packets
  * @param arg1 Device structure pointer
@@ -507,7 +549,18 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
 			if (res != 0) {
 				/* Semaphore timeout - no interrupt received */
+				/* Interrupt mode could support update link status*/
+				uint8_t nsr = dm9051_link_status(dev);
+				if (nsr & NSR_LINKST) {
+					/* In interrupt mode, re-enable interrupt by giving semaphore back */
+					k_sem_give(&context->int_sem);
+				}
 				continue;
+			}
+			uint8_t nsr = dm9051_read_reg(dev, DM9051_NSR);
+			if (nsr & NSR_LINKST) {
+				/* In interrupt mode, re-enable interrupt by giving semaphore back */
+				k_sem_give(&context->int_sem);
 			}
 		} else {
 			/* Polling mode: periodic check every 10ms */
@@ -523,11 +576,12 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
-
+#if 0
 		if (cint(dev)) {
 			/* In interrupt mode, re-enable interrupt by giving semaphore back */
 			k_sem_give(&context->int_sem);
 		}
+#endif
 	}
 }
 
@@ -590,8 +644,6 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 	printk("%s: _dm9051_set_config: Interface configured.e [(nothing)]\n", dev->name);
 	return -ENOTSUP;
 }
-
-extern int endc;
 
 static void eth_dm9051_iface_init(struct net_if *iface)
 {
@@ -744,8 +796,8 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
 
-	printk("\n(end.e=%d) %s %s\n", endc++,
-	       STRINGIFY(BUILD_VERSION), cint(dev) ? "INT mode" : "POLL mode");
+	printk("\n(end.e=%d) %s Configuring %s\n", endc++,
+	       STRINGIFY(BUILD_VERSION), cint(dev) ? "INTERRUPT mode" : "POLL mode");
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
@@ -762,6 +814,7 @@ static int eth_dm9051_init(const struct device *dev)
 		.mac_address = DT_INST_PROP(inst, local_mac_address),                              \
 		.tx_rx_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).tx_rx_sem, 1, UINT_MAX),    \
 		.int_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).int_sem, 0, UINT_MAX),        \
+		.link_up = false,                                                                  \
 	};                                                                                         \
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                                 \

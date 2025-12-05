@@ -55,7 +55,7 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 			continue;
 		}
 
-		printk("\n(handler.e=%d)\n", endc++); //LOG_INF("%d", endc++);
+		printk("\n(handler.e=%d)\n", endc++); // LOG_INF("%d", endc++);
 		LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
 			net_addr_ntop(AF_INET,
 				      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, buf,
@@ -65,7 +65,7 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 				      sizeof(buf)));
 		LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
 			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf)));
-		//LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
+		// LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
 		//	iface->config.dhcpv4.lease_time);
 	}
 }
@@ -94,6 +94,9 @@ int main(void)
 	net_if_foreach(start_dhcpv4_client, NULL);
 
 	struct net_if *iface = net_if_get_by_index(1); // only one, first one.
-	printk("\n(main.e=%d) (dhcp_start: %s) index=%d\n", endc++, net_if_get_device(iface)->name, net_if_get_by_iface(iface));
+	// printk("\n(main.e=%d) (dhcp_start: %s) index=%d\n", endc++,
+	// net_if_get_device(iface)->name, net_if_get_by_iface(iface));
+	printk("\n(main.e=%d)\n(dhcp_start: dev->name = %s)\n", endc++,
+	       net_if_get_device(iface)->name);
 	return 0;
 }
