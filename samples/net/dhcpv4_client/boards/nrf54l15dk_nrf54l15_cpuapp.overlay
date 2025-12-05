@@ -20,8 +20,16 @@
  *       SPI00 is already used by the external flash memory.
  */
 
-/* Ensure GPIO1 and its GPIOTE instance are enabled */
+/* Ensure GPIO0, GPIO1 and their GPIOTE instances are enabled */
+&gpio0 {
+	status = "okay";
+};
+
 &gpio1 {
+	status = "okay";
+};
+
+&gpiote30 {
 	status = "okay";
 };
 

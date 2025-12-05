@@ -220,10 +220,10 @@ static void dm9051_phy_write(const struct device *dev, uint16_t reg, uint16_t va
 static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
 {
 	ARG_UNUSED(dev);
-	ARG_UNUSED(pins);
 
 	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
 
+	printk("DM9051 INT! pins=0x%x\n", pins);
 	k_sem_give(&context->int_sem);
 }
 
@@ -552,14 +552,16 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 				/* Interrupt mode could support update link status*/
 				uint8_t nsr = dm9051_link_status(dev);
 				if (nsr & NSR_LINKST) {
-					/* In interrupt mode, re-enable interrupt by giving semaphore back */
+					/* In interrupt mode, re-enable interrupt by giving
+					 * semaphore back */
 					k_sem_give(&context->int_sem);
 				}
 				continue;
 			}
 			uint8_t nsr = dm9051_read_reg(dev, DM9051_NSR);
 			if (nsr & NSR_LINKST) {
-				/* In interrupt mode, re-enable interrupt by giving semaphore back */
+				/* In interrupt mode, re-enable interrupt by giving semaphore back
+				 */
 				k_sem_give(&context->int_sem);
 			}
 		} else {
@@ -576,12 +578,6 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
-#if 0
-		if (cint(dev)) {
-			/* In interrupt mode, re-enable interrupt by giving semaphore back */
-			k_sem_give(&context->int_sem);
-		}
-#endif
 	}
 }
 
