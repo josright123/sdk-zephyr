@@ -207,25 +207,30 @@ static void dm9051_phy_write(const struct device *dev, uint16_t reg, uint16_t va
 	dm9051_write_reg(dev, DM9051_EPCR, 0x00);
 }
 
+void dm9051_interrupt_disble_irq(const struct device *dev)
+{
+	dm9051_write_reg(dev, DM9051_IMR, IMR_PAR);
+}
+
+void dm9051_isr_enab(const struct device *dev)
+{
+	uint8_t isrs = dm9051_read_reg(dev, DM9051_ISR);
+	dm9051_write_reg(dev, DM9051_ISR, isrs);
+}
+void dm9051_imr_enab(const struct device *dev)
+{
+	dm9051_write_reg(dev, DM9051_IMR, IMR_INT_DEFAULT);
+}
+
+static void dm9051_interrupt_reset_for_cb_sem(const struct device *dev)
+{
+	dm9051_isr_enab(dev);
+	dm9051_imr_enab(dev);
+}
+
 /*******************************************************************************
  * Core Driver Functions
  ******************************************************************************/
-
-/**
- * @brief GPIO interrupt callback for DM9051
- * @param dev GPIO device (unused)
- * @param cb Callback structure
- * @param pins Pins that triggered the interrupt
- */
-static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
-{
-	ARG_UNUSED(dev);
-
-	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
-
-	printk("DM9051 INT! pins=0x%x\n", pins);
-	k_sem_give(&context->int_sem);
-}
 
 /**
  * @brief Perform core reset of DM9051
@@ -530,6 +535,23 @@ static uint8_t dm9051_link_status(const struct device *dev)
 }
 
 /**
+ * @brief GPIO interrupt callback for DM9051
+ * @param dev GPIO device (unused)
+ * @param cb Callback structure
+ * @param pins Pins that triggered the interrupt
+ */
+static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback *cb, uint32_t pins)
+{
+	ARG_UNUSED(dev);
+
+	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
+
+	// dm9051_interrupt_disble_irq(dev);
+	printk("---------DM9051 INT! pins=0x%x--------\n", pins);
+	k_sem_give(&context->int_sem);
+}
+
+/**
  * @brief RX thread for polling and processing incoming packets
  * @param arg1 Device structure pointer
  * @param arg2 Unused
@@ -548,22 +570,12 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 			/* Interrupt mode: wait for GPIO interrupt signal */
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
 			if (res != 0) {
-				/* Semaphore timeout - no interrupt received */
-				/* Interrupt mode could support update link status*/
-				uint8_t nsr = dm9051_link_status(dev);
-				if (nsr & NSR_LINKST) {
-					/* In interrupt mode, re-enable interrupt by giving
-					 * semaphore back */
-					k_sem_give(&context->int_sem);
-				}
+				/* Interrupt mode, Semaphore timeout - when no interrupt received
+				 * could support update link status */
+				dm9051_link_status(dev);
 				continue;
 			}
-			uint8_t nsr = dm9051_read_reg(dev, DM9051_NSR);
-			if (nsr & NSR_LINKST) {
-				/* In interrupt mode, re-enable interrupt by giving semaphore back
-				 */
-				k_sem_give(&context->int_sem);
-			}
+			dm9051_interrupt_disble_irq(dev);
 		} else {
 			/* Polling mode: periodic check every 10ms */
 			k_sem_take(&context->int_sem, K_MSEC(10));
@@ -578,6 +590,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
+		dm9051_interrupt_reset_for_cb_sem(dev);
 	}
 }
 
