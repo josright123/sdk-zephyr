@@ -26,6 +26,58 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "eth_dm9051_priv.h"
 
+static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len);
+
+int dm9051_read_mem_cb(void *ctx, uint8_t *buf, int len)
+{
+	const struct device *dev = ctx;
+
+	dm9051_read_mem(dev, buf, len);
+	return 0;
+}
+
+/*
+ * The following function and type definition are local implementations of
+ * APIs that may not be available in the user's SDK version. This ensures
+ * compatibility while using modern Zephyr patterns.
+ */
+typedef int (*net_pkt_read_from_cb_t)(void *ctx, uint8_t *buf, int len);
+
+static inline int local_net_pkt_write_from(struct net_pkt *pkt, net_pkt_read_from_cb_t cb,
+					   void *ctx, size_t len)
+{
+	size_t remaining = len;
+	struct net_buf *frag;
+
+	if (!pkt->buffer) {
+		return -ENOMEM;
+	}
+
+	frag = pkt->buffer;
+
+	while (frag && remaining > 0) {
+		size_t copy_len = MIN(remaining, net_buf_tailroom(frag));
+		int ret;
+
+		ret = cb(ctx, net_buf_add(frag, copy_len), copy_len);
+		if (ret < 0) {
+			return ret;
+		}
+
+		remaining -= copy_len;
+
+		if (remaining > 0) {
+			frag = frag->frags;
+		}
+	}
+
+	if (remaining > 0) {
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+
 /* Driver configuration structure */
 struct driver_config {
 	const char *release_version;
@@ -159,7 +211,7 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
  * @param reg PHY register address
  * @return PHY register value
  */
-#if 1
+#if 0
 static uint16_t dm9051_phy_read(const struct device *dev, uint16_t reg)
 {
 	uint16_t value;
@@ -458,25 +510,39 @@ static int dm9051_rx_packet(const struct device *dev)
 		return -EIO;
 	}
 
-	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4) {
+	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4 || rx_len < 4) {
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
 		return -EINVAL;
 	}
 
-	/* Allocate packet buffer */
-	pkt = net_pkt_rx_alloc_with_buffer(context->iface, rx_len, AF_UNSPEC, 0,
+	/* rx_len from chip includes 4-byte CRC, but net_pkt is for frame data only */
+	uint16_t frame_len = rx_len - 4;
+
+	/* Allocate packet buffer for the frame */
+	pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
 					   K_MSEC(config->timeout));
 	if (!pkt) {
-		LOG_ERR("%s: Failed to allocate RX buffer", dev->name);
+		LOG_ERR("%s: Failed to allocate RX buffer of size %u", dev->name, frame_len);
+		/* Discard the packet from DM9051's memory to prevent blocking */
+		uint8_t dummy[rx_len];
+		dm9051_read_mem(dev, dummy, rx_len);
 		eth_stats_update_errors_rx(context->iface);
 		return -ENOMEM;
 	}
 
-	/* Read packet data into buffer */
-	dm9051_read_mem(dev, pkt->buffer->data, rx_len);
+	/* Read frame data into buffer fragments using the local implementation */
+	if (local_net_pkt_write_from(pkt, dm9051_read_mem_cb, (void *)dev, frame_len)) {
+		LOG_ERR("%s: Failed to write packet into fragments", dev->name);
+		net_pkt_unref(pkt);
+		/* Attempt to discard the rest of the packet to prevent being stuck */
+		uint8_t dummy[rx_len];
+		dm9051_read_mem(dev, dummy, rx_len);
+		return -EIO;
+	}
 
-	/* CRITICAL: Update buffer length after reading data */
-	net_buf_add(pkt->buffer, rx_len);
+	/* Read and discard the 4-byte CRC to clear the RX buffer */
+	uint8_t crc_buf[4];
+	dm9051_read_mem(dev, crc_buf, 4);
 
 	dm9051_write_reg(dev, DM9051_ISR, 0x80);
 
@@ -547,7 +613,8 @@ static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback 
 	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
 
 	// dm9051_interrupt_disble_irq(dev);
-	printk("---------DM9051 INT! pins=0x%x--------\n", pins);
+	// printk("---------DM9051 INT.s pins=0x%x sem_count=%u--------\n", 
+	//       pins, k_sem_count_get(&context->int_sem));
 	k_sem_give(&context->int_sem);
 }
 
@@ -564,12 +631,21 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 	const struct device *dev = arg1;
 	struct dm9051_runtime *context = dev->data;
+	uint32_t int_count = 0;
+	uint8_t flg_print_rx_status = 0;
 
 	while (1) {
+		int loop_count = 0;
 		if (cint(dev)) {
 			/* Interrupt mode: wait for GPIO interrupt signal */
 			int res = k_sem_take(&context->int_sem, K_MSEC(100));
-			if (res != 0) {
+			if (res == 0) {
+				if (int_count % 100 == 0) {
+					flg_print_rx_status = 1;
+					printk("--------- %5d DM9051 INT.s sem_count=%u --------\n", 
+					       int_count, k_sem_count_get(&context->int_sem)+1);
+				}
+			} else {
 				/* Interrupt mode, Semaphore timeout - when no interrupt received
 				 * could support update link status */
 				dm9051_link_status(dev);
@@ -585,11 +661,18 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Process all available packets */
-		while (dm9051_rx_packet(dev) == 0)
-			;
+		while (dm9051_rx_packet(dev) == 0) {
+			loop_count++;
+		}
 
 		/* Release semaphore */
 		k_sem_give(&context->tx_rx_sem);
+		if (flg_print_rx_status) {
+			flg_print_rx_status = 0;
+			printk("---------%5d DM9051 INT.e sem_count=%u nRX=%d--------\n", 
+			       int_count, k_sem_count_get(&context->int_sem), loop_count);
+		}
+		int_count++;
 		dm9051_interrupt_reset_for_cb_sem(dev);
 	}
 }
@@ -729,7 +812,7 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Print SPI configuration */
 	printk("\n\n");
-	printk("_eth_dm9051_init: eth_dm9051_init.s8.6\n");
+	printk("_eth_dm9051_init: eth_dm9051_init.s8.7\n");
 	dm9051_init_log(dev); /* Print detailed GPIO information */
 	printk("_eth_dm9051_init: CS automatically controlled by SPI driver (P1.2)\n");
 
