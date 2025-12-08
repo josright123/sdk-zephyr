@@ -458,7 +458,7 @@ static int dm9051_rx_packet(const struct device *dev)
 		return -EIO;
 	}
 
-	if (rx_len > NET_ETH_MTU + 4) {
+	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4) {
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
 		return -EINVAL;
 	}
