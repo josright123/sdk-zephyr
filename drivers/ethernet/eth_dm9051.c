@@ -912,7 +912,7 @@ static int eth_dm9051_init(const struct device *dev)
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
-		.timeout = 100,                                                                    \
+		.timeout = 500,                                                                    \
 	};                                                                                         \
                                                                                                    \
 	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst,         \
