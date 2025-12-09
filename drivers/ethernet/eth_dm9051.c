@@ -15,6 +15,7 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
+#include <zephyr/random/random.h>
 #include <string.h>
 #include <errno.h>
 #include <zephyr/drivers/gpio.h>
@@ -22,11 +23,88 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 #include <zephyr/net/net_pkt.h>
 #include <zephyr/net/net_if.h>
 #include <zephyr/net/ethernet.h>
+#include <zephyr/toolchain.h>
 #include <ethernet/eth_stats.h>
 
 #include "eth_dm9051_priv.h"
 
+static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg);
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len);
+
+static bool dm9051_mac_is_valid(const uint8_t mac[6])
+{
+ bool all_zero = true;
+
+ for (int i = 0; i < 6; i++) {
+  if (mac[i] != 0x00) {
+   all_zero = false;
+   break;
+  }
+ }
+
+ if (all_zero) {
+  return false;
+ }
+
+ /* Reject multicast/broadcast */
+ if ((mac[0] & 0x01) != 0) {
+  return false;
+ }
+
+ return true;
+}
+
+static void dm9051_generate_random_mac(uint8_t mac[6])
+{
+	uint32_t r = sys_rand32_get();
+
+	/* OUI: Davicom vendor prefix */
+	mac[0] = 0x00;
+	mac[1] = 0x60;
+	mac[2] = 0x6e;
+
+	/* NIC: random bytes */
+	mac[3] = (uint8_t)(r >> 16);
+	mac[4] = (uint8_t)(r >> 8);
+	mac[5] = (uint8_t)(r & 0xFF);
+}
+
+int dm9051_load_mac_from_current_fit(const struct device *dev, uint8_t mac[6])
+{
+ for (int i = 0; i < 6; i++) {
+  mac[i] = dm9051_read_reg(dev, DM9051_PAR + i);
+ }
+ return 0;
+}
+
+static void dm9051_init_mac(const struct device *dev)
+{
+ struct dm9051_runtime *context = dev->data;
+
+
+ /* Priority 1: devicetree local-mac-address (already copied into context) */
+ if (dm9051_mac_is_valid(context->mac_address)) {
+  printk("dm9051_init_mac: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+         context->mac_address[0], context->mac_address[1], context->mac_address[2],
+         context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+  return;
+ }
+
+ /* Priority 2: try NVS */
+ if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
+	 dm9051_mac_is_valid(context->mac_address)) {
+  printk("dm9051_init_mac: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+         context->mac_address[0], context->mac_address[1], context->mac_address[2],
+         context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+  return;
+ }
+
+ /* Priority 3: fallback random locally administered unicast */
+ dm9051_generate_random_mac(context->mac_address);
+ printk("dm9051_init_mac: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+        context->mac_address[0], context->mac_address[1], context->mac_address[2],
+        context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+}
 
 int dm9051_read_mem_cb(void *ctx, uint8_t *buf, int len)
 {
@@ -890,6 +968,9 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Perform core reset */
 	dm9051_core_reset(dev);
 
+	/* Decide MAC address: DT local-mac-address > NVS > random */
+	dm9051_init_mac(dev);
+
 	/* Set MAC address */
 	dm9051_set_mac_address(dev, context->mac_address); // to be checked! more!
 
@@ -899,8 +980,8 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
 
-	printk("\n(end.e=%d) %s Configuring %s\n", endc++,
-	       STRINGIFY(BUILD_VERSION), cint(dev) ? "INTERRUPT mode" : "POLL mode");
+	printk("\n(end.e=%d) Configuring %s\n", endc++,
+	       cint(dev) ? "INTERRUPT mode" : "POLL mode");
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
 	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
