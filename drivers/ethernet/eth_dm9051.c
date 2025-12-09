@@ -793,8 +793,10 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 				 const struct ethernet_config *config)
 {
 	struct dm9051_runtime *context = dev->data;
+	uint8_t rcr_value;
 
-	if (type == ETHERNET_CONFIG_TYPE_MAC_ADDRESS) {
+	switch (type) {
+	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
 		memcpy(context->mac_address, config->mac_address.addr,
 		       sizeof(context->mac_address));
 
@@ -816,13 +818,101 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 					     sizeof(context->mac_address), NET_LINK_ETHERNET);
 		}
 
-		printk("%s: _dm9051_set_config: Interface configured.e [(set mac address, and set "
-		       "receive)]\n",
+		printk("%s: _dm9051_set_config: Interface configured [(set mac address)]\n",
 		       dev->name);
 		return 0;
+
+#ifdef CONFIG_NET_PROMISCUOUS_MODE
+	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
+		k_sem_take(&context->tx_rx_sem, K_FOREVER);
+
+		/* Read current RCR value */
+		rcr_value = dm9051_read_reg(dev, DM9051_RCR);
+
+		if (config->promisc_mode) {
+			/* Enable promiscuous mode */
+			rcr_value |= RCR_PRMSC;
+			LOG_INF("%s: Promiscuous mode enabled", dev->name);
+		} else {
+			/* Disable promiscuous mode */
+			rcr_value &= ~RCR_PRMSC;
+			LOG_INF("%s: Promiscuous mode disabled", dev->name);
+		}
+
+		/* Write updated RCR value */
+		dm9051_write_reg(dev, DM9051_RCR, rcr_value);
+
+		k_sem_give(&context->tx_rx_sem);
+		return 0;
+#endif
+
+#ifdef CONFIG_ETH_DM9051_MULTICAST_FILTER
+	case ETHERNET_CONFIG_TYPE_FILTER:
+		/* Configure MAC Address Register (MAR) for multicast filtering */
+		if (config->filter.type == ETHERNET_FILTER_TYPE_SET_MULTICAST) {
+			const struct ethernet_filter_multicast *filter = &config->filter.multicast;
+			uint32_t hash;
+			uint8_t mar[8] = {0};
+
+			k_sem_take(&context->tx_rx_sem, K_FOREVER);
+
+			/* Calculate hash for the multicast address */
+			hash = ((uint32_t)filter->mac_address.addr[0] << 24) |
+			       ((uint32_t)filter->mac_address.addr[1] << 16) |
+			       ((uint32_t)filter->mac_address.addr[2] << 8) |
+			       ((uint32_t)filter->mac_address.addr[3]);
+
+			/* Use CRC to determine hash table position */
+			uint8_t hash_bit = (hash >> 26) & 0x3f;
+			uint8_t mar_index = hash_bit / 8;
+			uint8_t bit_index = hash_bit % 8;
+
+			/* Read current MAR values */
+			for (int i = 0; i < 8; i++) {
+				mar[i] = dm9051_read_reg(dev, DM9051_MAR + i);
+			}
+
+			if (filter->enable) {
+				/* Set bit in hash table */
+				mar[mar_index] |= BIT(bit_index);
+				LOG_DBG("%s: Added multicast filter for "
+					"%02x:%02x:%02x:%02x:%02x:%02x",
+					dev->name, filter->mac_address.addr[0],
+					filter->mac_address.addr[1],
+					filter->mac_address.addr[2],
+					filter->mac_address.addr[3],
+					filter->mac_address.addr[4],
+					filter->mac_address.addr[5]);
+			} else {
+				/* Clear bit in hash table */
+				mar[mar_index] &= ~BIT(bit_index);
+				LOG_DBG("%s: Removed multicast filter for "
+					"%02x:%02x:%02x:%02x:%02x:%02x",
+					dev->name, filter->mac_address.addr[0],
+					filter->mac_address.addr[1],
+					filter->mac_address.addr[2],
+					filter->mac_address.addr[3],
+					filter->mac_address.addr[4],
+					filter->mac_address.addr[5]);
+			}
+
+			/* Write updated MAR values */
+			for (int i = 0; i < 8; i++) {
+				dm9051_write_reg(dev, DM9051_MAR + i, mar[i]);
+			}
+
+			k_sem_give(&context->tx_rx_sem);
+			return 0;
+		}
+
+		return -ENOTSUP;
+#endif
+
+	default:
+		break;
 	}
 
-	printk("%s: _dm9051_set_config: Interface configured.e [(nothing)]\n", dev->name);
+	LOG_DBG("%s: Unsupported configuration type %d", dev->name, type);
 	return -ENOTSUP;
 }
 
