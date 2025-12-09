@@ -518,16 +518,27 @@ static int dm9051_rx_packet(const struct device *dev)
 	/* rx_len from chip includes 4-byte CRC, but net_pkt is for frame data only */
 	uint16_t frame_len = rx_len - 4;
 
-	/* Allocate packet buffer for the frame */
+	/* Allocate packet buffer for the frame with timeout retry strategy
+	 * First attempt: use configured timeout
+	 * If that fails, try with K_NO_WAIT in case buffers become available
+	 */
 	pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
 					   K_MSEC(config->timeout));
 	if (!pkt) {
-		LOG_ERR("%s: Failed to allocate RX buffer of size %u", dev->name, frame_len);
-		/* Discard the packet from DM9051's memory to prevent blocking */
-		uint8_t dummy[rx_len];
-		dm9051_read_mem(dev, dummy, rx_len);
-		eth_stats_update_errors_rx(context->iface);
-		return -ENOMEM;
+		/* Retry once without blocking - buffers may have been freed by RX thread */
+		pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
+						   K_NO_WAIT);
+		if (!pkt) {
+			LOG_WRN("%s: RX buffer allocation failed (size=%u, available pools: "
+				"RX_PKT=%d, RX_BUF=%d) - discarding packet",
+				dev->name, frame_len,
+				CONFIG_NET_PKT_RX_COUNT, CONFIG_NET_BUF_RX_COUNT);
+			/* Discard the packet from DM9051's memory to prevent blocking */
+			uint8_t dummy[rx_len];
+			dm9051_read_mem(dev, dummy, rx_len);
+			eth_stats_update_errors_rx(context->iface);
+			return -ENOMEM;
+		}
 	}
 
 	/* Read frame data into buffer fragments using the local implementation */
