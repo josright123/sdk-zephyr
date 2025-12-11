@@ -979,6 +979,29 @@ void dm9051_init_log(const struct device *dev)
  ******************************************************************************/
 
 /**
+ * @brief Perform hardware reset using reset GPIO
+ * @param dev Device structure
+ */
+static void dm9051_hw_reset(const struct device *dev)
+{
+	const struct dm9051_config *config = dev->config;
+
+	if (!config->reset.port) {
+		return;
+	}
+
+	/* Assert reset (active low) */
+	gpio_pin_set_dt(&config->reset, 1);
+	k_msleep(2);
+
+	/* Deassert reset */
+	gpio_pin_set_dt(&config->reset, 0);
+	k_msleep(10);
+
+	printk("_eth_dm9051_init: Hardware reset complete\n");
+}
+
+/**
  * @brief Detect and verify DM9051 chip ID
  * @param dev Device structure
  * @return Chip ID on success, 0 on failure
@@ -1040,6 +1063,22 @@ static int eth_dm9051_init(const struct device *dev)
 	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
 	 */
 
+	/* Configure reset GPIO if reset-gpios is defined in device tree */
+	if (config->reset.port) {
+		if (!gpio_is_ready_dt(&config->reset)) {
+			LOG_ERR("Reset GPIO port %s not ready", config->reset.port->name);
+			return -EINVAL;
+		}
+
+		if (gpio_pin_configure_dt(&config->reset, GPIO_OUTPUT_INACTIVE)) {
+			LOG_ERR("Unable to configure reset GPIO pin %u", config->reset.pin);
+			return -EINVAL;
+		}
+
+		printk("_eth_dm9051_init: Reset GPIO configured - Port: %s, Pin: %d\n",
+		       config->reset.port->name, config->reset.pin);
+	}
+
 	/* Configure interrupt GPIO if int-gpios is defined in device tree */
 	if (cint(dev)) {
 		printk("_eth_dm9051_init: Configuring INTERRUPT mode\n");
@@ -1067,6 +1106,9 @@ static int eth_dm9051_init(const struct device *dev)
 	} else {
 		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
 	}
+
+	/* Perform hardware reset */
+	dm9051_hw_reset(dev);
 
 	/* Detect and verify chip ID */
 	chip_id = dm9051_detect_id(dev);
@@ -1113,6 +1155,7 @@ static int eth_dm9051_init(const struct device *dev)
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
+		.reset = GPIO_DT_SPEC_INST_GET(inst, reset_gpios),                                 \
 		.timeout = 500,                                                                    \
 	};                                                                                         \
                                                                                                    \
