@@ -84,7 +84,7 @@ static void dm9051_init_mac(const struct device *dev)
  struct dm9051_runtime *context = dev->data;
 
 
-	printk("\n(start.s=%d)\n", endc);
+	printk("\n(start.s=%d) MBNDRY_DEFAULT 0x%02x\n", endc, MBNDRY_DEFAULT);
  /* Priority 1: devicetree local-mac-address (already copied into context) */
  if (dm9051_mac_is_valid(context->mac_address)) {
   printk("dm9051_init_mac: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -386,7 +386,7 @@ static void dm9051_core_reset(const struct device *dev)
 	}
 
 	/* Software defaults */
-	dm9051_write_reg(dev, DM9051_MBNDRY, MBNDRY_BYTE);
+	dm9051_write_reg(dev, DM9051_MBNDRY, MBNDRY_DEFAULT);
 	dm9051_write_reg(dev, DM9051_PPCR, PPCR_PAUSE_COUNT);
 	dm9051_write_reg(dev, DM9051_LMCR, LMCR_MODE1);
 	dm9051_write_reg(dev, DM9051_INTR, INTR_ACTIVE_LOW);
@@ -509,13 +509,19 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 
 	k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
+	/* tx pad default_boundary */
+	uint16_t pad_len = (MBNDRY_DEFAULT == MBNDRY_WORD) && (len & 1) ? len + 1 : len;
+
 	/* Set packet length */
-	dm9051_write_reg(dev, DM9051_TXPLL, len & 0xff);
-	dm9051_write_reg(dev, DM9051_TXPLH, (len >> 8) & 0xff);
+	dm9051_write_reg(dev, DM9051_TXPLL, pad_len & 0xff);
+	dm9051_write_reg(dev, DM9051_TXPLH, (pad_len >> 8) & 0xff);
 
 	/* Write packet data */
+	uint16_t pad = 0;
 	for (frag = pkt->frags; frag; frag = frag->frags) {
-		dm9051_write_mem(dev, frag->data, frag->len);
+		if ((MBNDRY_DEFAULT == MBNDRY_WORD) && !frag->frags && (frag->len & 1))
+			pad = 1;
+		dm9051_write_mem(dev, frag->data, frag->len + pad);
 	}
 
 	/* Trigger transmission */
@@ -595,6 +601,11 @@ static int dm9051_rx_packet(const struct device *dev)
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
 		return -EINVAL;
 	}
+
+	/* rx_len default_boundary */
+	if (MBNDRY_DEFAULT == MBNDRY_WORD)
+		rx_len = ((rx_len + 1) >> 1) << 1; 
+
 
 	/* rx_len from chip includes 4-byte CRC, but net_pkt is for frame data only */
 	uint16_t frame_len = rx_len - 4;

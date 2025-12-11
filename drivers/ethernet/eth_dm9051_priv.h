@@ -201,7 +201,7 @@ typedef uint8_t mac_t[MAC_ADDR_LENGTH];
 /* 0x5E */
 #define MBNDRY_WORD 0
 #define MBNDRY_BYTE (1 << 7)
-// #define MBNDRY_DEFAULTx      MBNDRY_WORD //MBNDRY_BYTE
+#define MBNDRY_DEFAULT      MBNDRY_BYTE
 
 /* 0x7E */
 #define ISR_PR (1 << 0)
