@@ -978,6 +978,46 @@ void dm9051_init_log(const struct device *dev)
  * Device Initialization
  ******************************************************************************/
 
+/**
+ * @brief Detect and verify DM9051 chip ID
+ * @param dev Device structure
+ * @return Chip ID on success, 0 on failure
+ */
+static uint16_t dm9051_detect_id(const struct device *dev)
+{
+	uint16_t chip_id;
+
+	/* Try reading chip ID multiple times */
+	for (int attempt = 0; attempt < 3; attempt++) {
+		k_msleep(50);
+		chip_id = dm9051_get_chipid(dev);
+		if (chip_id == 0x9051 || chip_id == 0x9058) {
+			break;
+		}
+	}
+
+	/* Verify chip ID before reset */
+	if (chip_id != 0x9051 && chip_id != 0x9058) {
+		printk("_eth_dm9051_init: ERROR: Invalid chip ID: 0x%04x (expected 0x9051 or "
+		       "0x9058)\n",
+		       chip_id);
+
+		while (1) {
+			chip_id = dm9051_get_chipid(dev);
+			if (chip_id == 0x9051 || chip_id == 0x9058) {
+				printk("\nINFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
+				break;
+			}
+			printk(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
+			printk(" (LOOP-TEST: delay)");
+			k_msleep(1000);
+		}
+		return 0;
+	}
+
+	return chip_id;
+}
+
 static int eth_dm9051_init(const struct device *dev)
 {
 	const struct dm9051_config *config = dev->config;
@@ -1028,31 +1068,9 @@ static int eth_dm9051_init(const struct device *dev)
 		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
 	}
 
-	/* Try reading chip ID multiple times */
-	for (int attempt = 0; attempt < 3; attempt++) {
-		k_msleep(50);
-		chip_id = dm9051_get_chipid(dev);
-		if (chip_id == 0x9051 || chip_id == 0x9058) {
-			break;
-		}
-	}
-
-	/* Verify chip ID before reset */
-	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		printk("_eth_dm9051_init: ERROR: Invalid chip ID: 0x%04x (expected 0x9051 or "
-		       "0x9058)\n",
-		       chip_id);
-
-		while (1) {
-			chip_id = dm9051_get_chipid(dev);
-			if (chip_id == 0x9051 || chip_id == 0x9058) {
-				printk("\nINFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
-				break;
-			}
-			printk(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
-			printk(" (LOOP-TEST: delay)");
-			k_msleep(1000);
-		}
+	/* Detect and verify chip ID */
+	chip_id = dm9051_detect_id(dev);
+	if (chip_id == 0) {
 		return -ENODEV;
 	}
 
