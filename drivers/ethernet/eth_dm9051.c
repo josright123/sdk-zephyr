@@ -31,6 +31,8 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg);
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len);
 
+extern int endc;
+
 static bool dm9051_mac_is_valid(const uint8_t mac[6])
 {
  bool all_zero = true;
@@ -82,6 +84,7 @@ static void dm9051_init_mac(const struct device *dev)
  struct dm9051_runtime *context = dev->data;
 
 
+	printk("\n(start.s=%d)\n", endc);
  /* Priority 1: devicetree local-mac-address (already copied into context) */
  if (dm9051_mac_is_valid(context->mac_address)) {
   printk("dm9051_init_mac: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
@@ -651,8 +654,6 @@ static int dm9051_rx_packet(const struct device *dev)
  * RX Thread
  ******************************************************************************/
 
-extern int endc;
-
 static uint8_t dm9051_link_status(const struct device *dev)
 {
 	// uint16_t bmsr;
@@ -1070,7 +1071,7 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
 
-	printk("\n(end.e=%d) Configuring %s\n", endc++,
+	printk("(end.e=%d) Configuring %s\n", endc++,
 	       cint(dev) ? "INTERRUPT mode" : "POLL mode");
 	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
 	       "0x%04x\n",
