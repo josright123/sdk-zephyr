@@ -79,36 +79,6 @@ int dm9051_load_mac_from_current_fit(const struct device *dev, uint8_t mac[6])
  return 0;
 }
 
-static void dm9051_init_mac(const struct device *dev)
-{
- struct dm9051_runtime *context = dev->data;
-
-
-	printk("\n(start.s=%d) MBNDRY_DEFAULT 0x%02x\n", endc, MBNDRY_DEFAULT);
- /* Priority 1: devicetree local-mac-address (already copied into context) */
- if (dm9051_mac_is_valid(context->mac_address)) {
-  printk("dm9051_init_mac: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
-         context->mac_address[0], context->mac_address[1], context->mac_address[2],
-         context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-  return;
- }
-
- /* Priority 2: try NVS */
- if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
-	 dm9051_mac_is_valid(context->mac_address)) {
-  printk("dm9051_init_mac: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
-         context->mac_address[0], context->mac_address[1], context->mac_address[2],
-         context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-  return;
- }
-
- /* Priority 3: fallback random locally administered unicast */
- dm9051_generate_random_mac(context->mac_address);
- printk("dm9051_init_mac: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
-        context->mac_address[0], context->mac_address[1], context->mac_address[2],
-        context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-}
-
 int dm9051_read_mem_cb(void *ctx, uint8_t *buf, int len)
 {
 	const struct device *dev = ctx;
@@ -124,7 +94,7 @@ int dm9051_read_mem_cb(void *ctx, uint8_t *buf, int len)
  */
 typedef int (*net_pkt_read_from_cb_t)(void *ctx, uint8_t *buf, int len);
 
-static inline int local_net_pkt_write_from(struct net_pkt *pkt, net_pkt_read_from_cb_t cb,
+static inline int local_net_pkt_read_from(struct net_pkt *pkt, net_pkt_read_from_cb_t cb,
 					   void *ctx, size_t len)
 {
 	size_t remaining = len;
@@ -634,7 +604,7 @@ static int dm9051_rx_packet(const struct device *dev)
 	}
 
 	/* Read frame data into buffer fragments using the local implementation */
-	if (local_net_pkt_write_from(pkt, dm9051_read_mem_cb, (void *)dev, frame_len)) {
+	if (local_net_pkt_read_from(pkt, dm9051_read_mem_cb, (void *)dev, frame_len)) {
 		LOG_ERR("%s: Failed to write packet into fragments", dev->name);
 		net_pkt_unref(pkt);
 		/* Attempt to discard the rest of the packet to prevent being stuck */
@@ -805,7 +775,6 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 				 const struct ethernet_config *config)
 {
 	struct dm9051_runtime *context = dev->data;
-	uint8_t rcr_value;
 
 	switch (type) {
 	case ETHERNET_CONFIG_TYPE_MAC_ADDRESS:
@@ -836,6 +805,7 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 
 #ifdef CONFIG_NET_PROMISCUOUS_MODE
 	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
+		uint8_t rcr_value;
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Read current RCR value */
@@ -1052,11 +1022,52 @@ static uint16_t dm9051_detect_id(const struct device *dev)
 	return chip_id;
 }
 
+static int dm9051_init_mac(const struct device *dev)
+{
+	printk("\n(start.s=%d) MBNDRY_DEFAULT %s\n", endc, MBNDRY_DEFAULT == MBNDRY_WORD ? "MBNDRY_WORD" : "NA");
+		   
+	/* Detect and verify chip ID */
+	uint16_t chip_id = dm9051_detect_id(dev);
+	if (chip_id == 0)
+		return -ENODEV;
+
+	printk("(dm9051_init_mac.s=%d) Configuring %s Chip ID: 0x%04x\n", endc++,
+	       cint(dev) ? "INTERRUPT mode" : "POLL mode",
+			chip_id);
+
+	/* Perform core reset */
+	dm9051_core_reset(dev);
+
+	struct dm9051_runtime *context = dev->data;
+	/* Priority 1: devicetree local-mac-address (already copied into context) */
+	if (dm9051_mac_is_valid(context->mac_address)) {
+	printk("dm9051_init_mac.e: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+			context->mac_address[0], context->mac_address[1], context->mac_address[2],
+			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+	return 0;
+	}
+
+	/* Priority 2: try NVS */
+	if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
+		dm9051_mac_is_valid(context->mac_address)) {
+	printk("dm9051_init_mac.e: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+			context->mac_address[0], context->mac_address[1], context->mac_address[2],
+			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+	return 0;
+	}
+
+	/* Priority 3: fallback random locally administered unicast */
+	dm9051_generate_random_mac(context->mac_address);
+	printk("dm9051_init_mac.e: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+			context->mac_address[0], context->mac_address[1], context->mac_address[2],
+			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+	return 0;
+}
+
 static int eth_dm9051_init(const struct device *dev)
 {
 	const struct dm9051_config *config = dev->config;
 	struct dm9051_runtime *context = dev->data;
-	uint16_t chip_id;
 
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
@@ -1121,17 +1132,9 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Perform hardware reset */
 	dm9051_hw_reset(dev);
 
-	/* Detect and verify chip ID */
-	chip_id = dm9051_detect_id(dev);
-	if (chip_id == 0) {
-		return -ENODEV;
-	}
-
-	/* Perform core reset */
-	dm9051_core_reset(dev);
-
 	/* Decide MAC address: DT local-mac-address > NVS > random */
-	dm9051_init_mac(dev);
+	if (dm9051_init_mac(dev) != 0)
+		return -ENODEV;
 
 	/* Set MAC address */
 	dm9051_set_mac_address(dev, context->mac_address); // to be checked! more!
@@ -1142,12 +1145,10 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
 
-	printk("(end.e=%d) Configuring %s\n", endc++,
-	       cint(dev) ? "INTERRUPT mode" : "POLL mode");
-	printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
-	       "0x%04x\n",
-	       context->mac_address[0], context->mac_address[1], context->mac_address[2],
-	       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
+	//printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
+	//       "0x%04x\n",
+	//       context->mac_address[0], context->mac_address[1], context->mac_address[2],
+	//       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
 	return 0;
 }
 
