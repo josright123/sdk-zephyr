@@ -33,6 +33,23 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 
 extern int endc;
 
+/**
+ * @brief Drop packet from DM9051's memory to prevent blocking
+ * @param dev Device structure
+ * @param rx_len Length of packet to discard (including padding)
+ */
+static void dm9051_drop_packet(const struct device *dev, uint16_t rx_len)
+{
+	uint8_t dummy[rx_len];
+	dm9051_read_mem(dev, dummy, rx_len);
+	
+	/* MBNDRY_DEFAULT - Pad to even length */
+	if (rx_len & 1) {
+		uint8_t pad;
+		dm9051_read_mem(dev, &pad, 1);
+	}
+}
+
 static bool dm9051_mac_is_valid(const uint8_t mac[6])
 {
  bool all_zero = true;
@@ -633,14 +650,7 @@ static int dm9051_rx_packet(const struct device *dev)
 				dev->name, frame_len,
 				CONFIG_NET_PKT_RX_COUNT, CONFIG_NET_BUF_RX_COUNT);
 			/* Discard the packet from DM9051's memory to prevent blocking */
-			uint8_t dummy[rx_len];
-			dm9051_read_mem(dev, dummy, rx_len);
-			/* MBNDRY_DEFAULT */
-			/* Pad to even length */
-			if (rx_len & 1) {
-				uint8_t pad;
-				dm9051_read_mem(dev, &pad, 1);
-			}
+			dm9051_drop_packet(dev, rx_len);
 			eth_stats_update_errors_rx(context->iface);
 			return -ENOMEM;
 		}
@@ -653,14 +663,7 @@ static int dm9051_rx_packet(const struct device *dev)
 			dev->name, frame_len,
 			CONFIG_NET_PKT_RX_COUNT, CONFIG_NET_BUF_RX_COUNT);
 		/* Discard the packet from DM9051's memory to prevent blocking */
-		uint8_t dummy[rx_len];
-		dm9051_read_mem(dev, dummy, rx_len);
-		/* MBNDRY_DEFAULT */
-		/* Pad to even length */
-		if (rx_len & 1) {
-			uint8_t pad;
-			dm9051_read_mem(dev, &pad, 1);
-		}
+		dm9051_drop_packet(dev, rx_len);
 		eth_stats_update_errors_rx(context->iface);
 		return -ENOMEM;
 	}
