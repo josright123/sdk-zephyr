@@ -98,13 +98,7 @@ static inline int local_net_pkt_read_from(struct net_pkt *pkt, net_pkt_read_from
 					   void *ctx, size_t len)
 {
 	size_t remaining = len;
-	struct net_buf *frag;
-
-	if (!pkt->buffer) {
-		return -ENOMEM;
-	}
-
-	frag = pkt->buffer;
+	struct net_buf *frag = pkt->buffer;
 
 	while (frag && remaining > 0) {
 		size_t copy_len = MIN(remaining, net_buf_tailroom(frag));
@@ -480,18 +474,25 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 	k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 	/* tx pad default_boundary */
-	uint16_t pad_len = (MBNDRY_DEFAULT == MBNDRY_WORD) && (len & 1) ? len + 1 : len;
+	//uint16_t pad_len = (MBNDRY_DEFAULT == MBNDRY_WORD) && (len & 1) ? len + 1 : len;
 
 	/* Set packet length */
-	dm9051_write_reg(dev, DM9051_TXPLL, pad_len & 0xff);
-	dm9051_write_reg(dev, DM9051_TXPLH, (pad_len >> 8) & 0xff);
+	dm9051_write_reg(dev, DM9051_TXPLL, len & 0xff);
+	dm9051_write_reg(dev, DM9051_TXPLH, (len >> 8) & 0xff);
 
 	/* Write packet data */
-	uint16_t pad = 0;
+	//uint16_t pad = 0;
 	for (frag = pkt->frags; frag; frag = frag->frags) {
-		if ((MBNDRY_DEFAULT == MBNDRY_WORD) && !frag->frags && (frag->len & 1))
-			pad = 1;
-		dm9051_write_mem(dev, frag->data, frag->len + pad);
+		//if ((MBNDRY_DEFAULT == MBNDRY_WORD) && !frag->frags && (frag->len & 1))
+		//	pad = 1;
+		dm9051_write_mem(dev, frag->data, frag->len); // + pad
+	}
+
+	/* MBNDRY_DEFAULT */
+	/* Pad to even length */
+	if (len & 1) {
+		uint8_t pad = 0x00;
+		dm9051_write_mem(dev, &pad, 1);
 	}
 
 	/* Trigger transmission */
@@ -519,6 +520,36 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
 /*******************************************************************************
  * Packet Reception
  ******************************************************************************/
+
+/**
+ * @brief  Variable argument error handler with reset
+ *
+ * @param  format   Error format string
+ * @param  ...      Variable arguments
+ * @return          0 after reset completion
+ */
+uint16_t env_err_rsthdlr3(const char *format, ...)
+{
+  char bff[180];
+  int val;
+  va_list args;
+
+  va_start(args, format);
+  val = va_arg(args, int);
+  sprintf(bff, format, val);
+  printf("%s", bff);
+  va_end(args);
+
+  //dm9051_core_reset(dev); //cspi_core_reset();
+  //dm9051_set_receive(dev); //cspi_core_start1();
+  return 0;
+}
+
+void env_err_rst(const struct device *dev)
+{
+  dm9051_core_reset(dev); //cspi_core_reset();
+  dm9051_set_receive(dev); //cspi_core_start1();
+}
 
 /**
  * @brief Check if RX packet is ready
@@ -564,17 +595,23 @@ static int dm9051_rx_packet(const struct device *dev)
 	/* Validate packet */
 	if (rx_status & RSR_ERR_BITS) {
 		LOG_ERR("%s: RX error status=0x%02x", dev->name, rx_status);
+		env_err_rsthdlr3("_dm9051 rx_status error : 0x%02x\n",
+                                          rx_status);
+		env_err_rst(dev);
 		return -EIO;
 	}
 
 	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4 || rx_len < 4) {
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
+		env_err_rsthdlr3("_dm9051 rx_len error : %u\n",
+                                          rx_len);
+		env_err_rst(dev);
 		return -EINVAL;
 	}
 
 	/* rx_len default_boundary */
-	if (MBNDRY_DEFAULT == MBNDRY_WORD)
-		rx_len = ((rx_len + 1) >> 1) << 1; 
+	//if (MBNDRY_DEFAULT == MBNDRY_WORD)
+	//	rx_len = ((rx_len + 1) >> 1) << 1; 
 
 
 	/* rx_len from chip includes 4-byte CRC, but net_pkt is for frame data only */
@@ -598,24 +635,58 @@ static int dm9051_rx_packet(const struct device *dev)
 			/* Discard the packet from DM9051's memory to prevent blocking */
 			uint8_t dummy[rx_len];
 			dm9051_read_mem(dev, dummy, rx_len);
+			/* MBNDRY_DEFAULT */
+			/* Pad to even length */
+			if (rx_len & 1) {
+				uint8_t pad;
+				dm9051_read_mem(dev, &pad, 1);
+			}
 			eth_stats_update_errors_rx(context->iface);
 			return -ENOMEM;
 		}
 	}
 
 	/* Read frame data into buffer fragments using the local implementation */
+	if (!pkt->buffer) {
+		LOG_WRN("%s: RX buffer allocation buffer NULL (size=%u, available pools: "
+			"RX_PKT=%d, RX_BUF=%d) - discarding packet",
+			dev->name, frame_len,
+			CONFIG_NET_PKT_RX_COUNT, CONFIG_NET_BUF_RX_COUNT);
+		/* Discard the packet from DM9051's memory to prevent blocking */
+		uint8_t dummy[rx_len];
+		dm9051_read_mem(dev, dummy, rx_len);
+		/* MBNDRY_DEFAULT */
+		/* Pad to even length */
+		if (rx_len & 1) {
+			uint8_t pad;
+			dm9051_read_mem(dev, &pad, 1);
+		}
+		eth_stats_update_errors_rx(context->iface);
+		return -ENOMEM;
+	}
+
 	if (local_net_pkt_read_from(pkt, dm9051_read_mem_cb, (void *)dev, frame_len)) {
 		LOG_ERR("%s: Failed to write packet into fragments", dev->name);
 		net_pkt_unref(pkt);
 		/* Attempt to discard the rest of the packet to prevent being stuck */
-		uint8_t dummy[rx_len];
-		dm9051_read_mem(dev, dummy, rx_len);
+		//uint8_t dummy[rx_len];
+		//dm9051_read_mem(dev, dummy, rx_len);
+		static uint16_t times = 0;
+		env_err_rsthdlr3("dm9 impossible pkt_read_from error times : %u\n", ++times);
+		env_err_rst(dev);
 		return -EIO;
 	}
 
 	/* Read and discard the 4-byte CRC to clear the RX buffer */
 	uint8_t crc_buf[4];
 	dm9051_read_mem(dev, crc_buf, 4);
+
+	/* MBNDRY_DEFAULT */
+	/* Pad to even length */
+	if (rx_len & 1) {
+		uint8_t pad;
+		dm9051_read_mem(dev, &pad, 1);
+	}
 
 	dm9051_write_reg(dev, DM9051_ISR, 0x80);
 
@@ -805,10 +876,10 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 
 #ifdef CONFIG_NET_PROMISCUOUS_MODE
 	case ETHERNET_CONFIG_TYPE_PROMISC_MODE:
-		uint8_t rcr_value;
 		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Read current RCR value */
+		uint8_t rcr_value;
 		rcr_value = dm9051_read_reg(dev, DM9051_RCR);
 
 		if (config->promisc_mode) {
@@ -1031,7 +1102,7 @@ static int dm9051_init_mac(const struct device *dev)
 	if (chip_id == 0)
 		return -ENODEV;
 
-	printk("(dm9051_init_mac.s=%d) Configuring %s Chip ID: 0x%04x\n", endc++,
+	printk("(init_mac.s=%d) RX %s Chip ID: 0x%04x\n", endc++,
 	       cint(dev) ? "INTERRUPT mode" : "POLL mode",
 			chip_id);
 
