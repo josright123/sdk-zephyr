@@ -1,24 +1,25 @@
 /*
- * Device Tree overlay for DM9051 SPI Ethernet Controller on nRF54L15DK
- * 
- * This overlay configures the DM9051 Ethernet controller connected via SPI21.
- * SPI21 supports cross-domain pins and can use GPIO1 pins.
- * 
- * Pin connections:
- * - SCK:  P1.12 - SPI Clock
- * - MOSI: P1.1 - SPI MOSI (Master Out Slave In)
- * - MISO: P1.0 - SPI MISO (Master In Slave Out)
- * - CS:   P1.2 - Chip Select (configured in cs-gpios)
- * - INT:  P0.3 - Interrupt pin
- * 
- * SPI Configuration:
- * - Interface: SPI21 (to avoid conflict with UART20 which uses the same hardware instance as SPI20)
- * - Max Frequency: 4MHz (conservative for stability)
- * - Can be increased to 8MHz if stable
- * 
- * Note: SPI20 and UART20 share the same hardware instance, so we use SPI21 instead.
- *       SPI00 is already used by the external flash memory.
+ * Copyright (c) 2025 Nordic Semiconductor ASA
+ *
+ * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  */
+
+&rram_controller {
+	/delete-node/ cpuflpr_sram;
+	/delete-node/ cpuflpr_rram;
+};
+
+/* Adjust the cpuapp_sram to include the freed up cpuflpr_sram */
+&cpuapp_sram {
+	reg = <0x20000000 DT_SIZE_K(256)>;
+	ranges = <0x0 0x20000000 0x20040000>;
+};
+
+/* Adjust the cpuapp_rram to include the freed up cpuflpr_rram */
+&cpuapp_rram {
+	reg = <0x0 DT_SIZE_K(1524)>;
+};
+
 
 /* Ensure GPIO0, GPIO1 and their GPIOTE instances are enabled */
 &gpio0 {
@@ -69,9 +70,10 @@
 		reg = <0>;
 		spi-max-frequency = <1000000>;  /* 1MHz - minimum for debugging */
 		int-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+		reset-gpios = <&gpio2 0 GPIO_ACTIVE_LOW>;
 		
 		/* Local MAC address */
-		local-mac-address = [00 11 22 33 44 55];
+		local-mac-address = [00 00 00 00 00 00]; /* [00 11 22 33 44 55]; */
 	};
 };
 
