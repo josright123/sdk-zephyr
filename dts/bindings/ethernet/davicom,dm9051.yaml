@@ -10,7 +10,7 @@ include: [spi-device.yaml, ethernet-controller.yaml]
 properties:
   int-gpios:
     type: phandle-array
-    required: true
+    #required: true
     description: Interrupt pin.
 
       The interrupt pin of DM9051 is active low.
@@ -18,7 +18,7 @@ properties:
       as active low.
   reset-gpios:
     type: phandle-array
-    required: true
+    #required: true
     description: Reset pin.
 
       Reset GPIO pin for hardware reset of the DM9051 chip.

@@ -1,7 +1,8 @@
 /*
- * Copyright (c) 2025 Nordic Semiconductor ASA
+ * DM9051 overlay (INTERRUPT mode) for nRF54L15DK CPUAPP
  *
- * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
+ * - Set int-gpios -> eth_dm9051.c uses interrupt mode (cint(dev)==true)
+ * - reset-gpios optional (left commented)
  */
 
 &rram_controller {
@@ -9,19 +10,16 @@
 	/delete-node/ cpuflpr_rram;
 };
 
-/* Adjust the cpuapp_sram to include the freed up cpuflpr_sram */
 &cpuapp_sram {
 	reg = <0x20000000 DT_SIZE_K(256)>;
 	ranges = <0x0 0x20000000 0x20040000>;
 };
 
-/* Adjust the cpuapp_rram to include the freed up cpuflpr_rram */
 &cpuapp_rram {
 	reg = <0x0 DT_SIZE_K(1524)>;
 };
 
-
-/* Ensure GPIO0, GPIO1 and their GPIOTE instances are enabled */
+/* Keep GPIO ports enabled; enable their required GPIOTE instances */
 &gpio0 {
 	status = "okay";
 };
@@ -60,29 +58,30 @@
 &spi21 {
 	status = "okay";
 	clocks = <&hfpll>;
-	cs-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>;  /* CS on P1.2 */
+	cs-gpios = <&gpio1 2 GPIO_ACTIVE_LOW>; /* CS on P1.2 */
 	pinctrl-0 = <&spi21_default>;
 	pinctrl-1 = <&spi21_sleep>;
 	pinctrl-names = "default", "sleep";
-	
+
 	dm9051: dm9051@0 {
 		compatible = "davicom,dm9051";
 		reg = <0>;
-		spi-max-frequency = <1000000>;  /* 1MHz - minimum for debugging */
-		/* int-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>; */
-		/* reset-gpios = <&gpio2 0 GPIO_ACTIVE_LOW>; */
-		
-		/* Local MAC address */
-		local-mac-address = [00 00 00 00 00 00]; /* [00 11 22 33 44 55]; */
+		spi-max-frequency = <1000000>;
+
+		/* Interrupt mode */
+		int-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;
+
+		/* Optional HW reset (fill with your real pin if used) */
+		/* reset-gpios = <&gpio1 4 GPIO_ACTIVE_LOW>; */
+
+		local-mac-address = [00 00 00 00 00 00];
 	};
 };
 
-/* Disable NFCT to free up NFC pins for GPIO usage */
 &nfct {
 	status = "disabled";
 };
 
-/* Configure UICR to use NFCT pins as GPIOs */
 &uicr {
 	nfct-pins-as-gpios;
 };

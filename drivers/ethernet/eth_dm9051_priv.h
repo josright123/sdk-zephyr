@@ -227,6 +227,7 @@ struct dm9051_config {
 	struct gpio_dt_spec interrupt;
 	struct gpio_dt_spec reset;
 
+	int32_t timeout_pkt;
 	int32_t timeout;
 
 	int16_t mcu_spi_max_len;

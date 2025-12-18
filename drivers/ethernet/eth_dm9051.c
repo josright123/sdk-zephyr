@@ -151,6 +151,7 @@ const struct driver_config confdata = {
 };
 
 /* Helper macro to check if interrupt mode is enabled based on device tree configuration */
+#define crst(dev) (((const struct dm9051_config *)(dev)->config)->reset.port != NULL)
 #define cint(dev) (((const struct dm9051_config *)(dev)->config)->interrupt.port != NULL)
 
 /* DM9051 Constants */
@@ -639,7 +640,7 @@ static int dm9051_rx_packet(const struct device *dev)
 	 * If that fails, try with K_NO_WAIT in case buffers become available
 	 */
 	pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
-					   K_MSEC(config->timeout));
+					   K_MSEC(config->timeout_pkt)); //K_MSEC(config->timeout)
 	if (!pkt) {
 		/* Retry once without blocking - buffers may have been freed by RX thread */
 		pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
@@ -776,6 +777,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 	const struct device *dev = arg1;
 	struct dm9051_runtime *context = dev->data;
+	const struct dm9051_config *config = dev->config;
 	uint32_t int_count = 0;
 	uint8_t flg_print_rx_status = 0;
 
@@ -799,7 +801,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 			dm9051_interrupt_disble_irq(dev);
 		} else {
 			/* Polling mode: periodic check every 10ms */
-			k_sem_take(&context->int_sem, K_MSEC(10));
+			k_sem_take(&context->int_sem, K_MSEC(config->timeout)); //polling
 		}
 
 		/* Take semaphore to protect SPI access */
@@ -1029,6 +1031,65 @@ void dm9051_init_log(const struct device *dev)
 	printk("_eth_dm9051_init: INFO: ========================================\n");
 }
 
+static int dm9051_config_reset_gpio(const struct device *dev)
+{
+	const struct dm9051_config *config = dev->config;
+
+	if (!crst(dev)) {
+		printk("_eth_dm9051_init: Skipping reset GPIO (not defined)\n");
+		return 0;
+	}
+
+	if (!gpio_is_ready_dt(&config->reset)) {
+		LOG_ERR("Reset GPIO port %s not ready", config->reset.port->name);
+		return -EINVAL;
+	}
+
+	if (gpio_pin_configure_dt(&config->reset, GPIO_OUTPUT_INACTIVE)) {
+		LOG_ERR("Unable to configure reset GPIO pin %u", config->reset.pin);
+		return -EINVAL;
+	}
+
+	printk("_eth_dm9051_init: Reset GPIO configured - Port: %s, Pin: %d\n",
+	       config->reset.port->name, config->reset.pin);
+	return 0;
+}
+
+static int dm9051_config_interrupt_gpio(const struct device *dev)
+{
+	const struct dm9051_config *config = dev->config;
+	struct dm9051_runtime *context = dev->data;
+
+	if (!cint(dev)) {
+		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
+		return 0;
+	}
+
+	printk("_eth_dm9051_init: Configuring INTERRUPT mode\n");
+
+	if (!gpio_is_ready_dt(&config->interrupt)) {
+		LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
+		return -EINVAL;
+	}
+
+	if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
+		LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
+		return -EINVAL;
+	}
+
+	gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
+			   BIT(config->interrupt.pin));
+
+	if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
+		return -EINVAL;
+	}
+
+	gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
+	printk("_eth_dm9051_init: Interrupt GPIO configured - Port: %s, Pin: %d\n",
+	       config->interrupt.port->name, config->interrupt.pin);
+	return 0;
+}
+
 /*******************************************************************************
  * Device Initialization
  ******************************************************************************/
@@ -1041,7 +1102,7 @@ static void dm9051_hw_reset(const struct device *dev)
 {
 	const struct dm9051_config *config = dev->config;
 
-	if (!config->reset.port) {
+	if (!crst(dev)) {
 		return;
 	}
 
@@ -1142,6 +1203,7 @@ static int eth_dm9051_init(const struct device *dev)
 {
 	const struct dm9051_config *config = dev->config;
 	struct dm9051_runtime *context = dev->data;
+	int ret;
 
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
@@ -1159,48 +1221,15 @@ static int eth_dm9051_init(const struct device *dev)
 	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
 	 */
 
-	/* Configure reset GPIO if reset-gpios is defined in device tree */
-	if (config->reset.port) {
-		if (!gpio_is_ready_dt(&config->reset)) {
-			LOG_ERR("Reset GPIO port %s not ready", config->reset.port->name);
-			return -EINVAL;
-		}
-
-		if (gpio_pin_configure_dt(&config->reset, GPIO_OUTPUT_INACTIVE)) {
-			LOG_ERR("Unable to configure reset GPIO pin %u", config->reset.pin);
-			return -EINVAL;
-		}
-
-		printk("_eth_dm9051_init: Reset GPIO configured - Port: %s, Pin: %d\n",
-		       config->reset.port->name, config->reset.pin);
+	/* Configure reset and interrupt GPIOs (optional) */
+	ret = dm9051_config_reset_gpio(dev);
+	if (ret) {
+		return ret;
 	}
 
-	/* Configure interrupt GPIO if int-gpios is defined in device tree */
-	if (cint(dev)) {
-		printk("_eth_dm9051_init: Configuring INTERRUPT mode\n");
-
-		if (!gpio_is_ready_dt(&config->interrupt)) {
-			LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
-			return -EINVAL;
-		}
-
-		if (gpio_pin_configure_dt(&config->interrupt, GPIO_INPUT)) {
-			LOG_ERR("Unable to configure GPIO pin %u", config->interrupt.pin);
-			return -EINVAL;
-		}
-
-		gpio_init_callback(&context->gpio_cb, dm9051_gpio_callback,
-				   BIT(config->interrupt.pin));
-
-		if (gpio_add_callback(config->interrupt.port, &(context->gpio_cb))) {
-			return -EINVAL;
-		}
-
-		gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
-		printk("_eth_dm9051_init: Interrupt GPIO configured - Port: %s, Pin: %d\n",
-		       config->interrupt.port->name, config->interrupt.pin);
-	} else {
-		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
+	ret = dm9051_config_interrupt_gpio(dev);
+	if (ret) {
+		return ret;
 	}
 
 	/* Perform hardware reset */
@@ -1240,9 +1269,10 @@ static int eth_dm9051_init(const struct device *dev)
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
-		.interrupt = GPIO_DT_SPEC_INST_GET(inst, int_gpios),                               \
-		.reset = GPIO_DT_SPEC_INST_GET(inst, reset_gpios),                                 \
-		.timeout = 500,                                                                    \
+		.interrupt = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, {0}),                       \
+		.reset = GPIO_DT_SPEC_INST_GET_OR(inst, reset_gpios, {0}),                         \
+		.timeout_pkt = 500,                                                                  \
+		.timeout = 10,                                                                     \
 	};                                                                                         \
                                                                                                    \
 	ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst,         \

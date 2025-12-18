@@ -4,10 +4,10 @@
 
 ### 1. 驅動核心檔案
 
-| 檔案路徑 | 說明 |
-|----------|------|
-| `zephyr/drivers/ethernet/eth_dm9051.c` | DM9051 SPI 乙太網路驅動主要實作 |
-| `zephyr/drivers/ethernet/eth_dm9051_priv.h` | DM9051 驅動私有標頭檔，定義暫存器與內部結構 |
+| 檔案路徑                                        | 說明                                                                 |
+| ------------------------------------------- | ------------------------------------------------------------------ |
+| `zephyr/drivers/ethernet/eth_dm9051.c`      | DM9051 SPI 乙太網路驅動主要實作                                              |
+| `zephyr/drivers/ethernet/eth_dm9051_priv.h` | DM9051 驅動私有標頭檔，定義暫存器與內部結構 (#define MBNDRY_DEFAULT <br>MBNDRY_WORD) |
 
 ### 2. 建置與配置檔案
 
@@ -19,9 +19,16 @@
 
 ### 3. Device Tree 綁定檔案
 
-| 檔案路徑 | 說明 |
-|----------|------|
+| 檔案路徑                                               | 說明                      |
+| -------------------------------------------------- | ----------------------- |
 | `zephyr/dts/bindings/ethernet/davicom,dm9051.yaml` | DM9051 Device Tree 綁定定義 |
+
+### 4. Overlay 覆蓋檔
+
+| 檔案路徑                                                               | 說明                                    |
+| ------------------------------------------------------------------ | ------------------------------------- |
+| `zephyr/samples/net/dhcpv4_client/overlay_nrf54l15_dm9051.overlay` | 實作案例一,應用程式通過DM9051 Device Tree 可調屬性定義 |
+| `nrf/samples/net/http_server/overlay_nrf54l15_dm9051.overlay`      | 實作案例二,應用程式通過DM9051 Device Tree 可調屬性定義 |
 
 ---
 
@@ -34,6 +41,58 @@ DM9051 驅動的主要實作檔案，包含：
 - 封包收發處理
 - 中斷處理邏輯
 - Reset 腳位控制邏輯
+- 創建驅動的機制,
+1. `#define DT_DRV_COMPAT davicom_dm9051` 指定了此驅動對應的 `compatible` 名稱是 `davicom,dm9051`（逗號會在巨集展開時自動補上）。
+2. `DT_DRV_COMPAT` 是「驅動要綁定的 compatible 名稱」，`davicom_dm9051` 則是該名稱的標識符，對應binding 檔案與 devicetree 節點的 `compatible = "davicom,dm9051"`宣告，確保驅動只會匹配並實例化 DM9051 的節點。
+3. - 在 binding 檔 `davicom,dm9051.yaml` 中會宣告 `compatible: "davicom,dm9051"`。
+   - 在 devicetree/overlay（例如 `&spi21` 下的節點）使用 `compatible = "davicom,dm9051";`。
+   - 驅動透過 `DT_DRV_COMPAT` 把驅動與上述二者串起來,`DT_INST_FOREACH_STATUS_OKAY(DM9051_DEFINE)` 就會為所有 `status = "okay"` 且 `compatible = "davicom,dm9051"` 的節點產生裝置實例（`dm9051_runtime_*`、`dm9051_config_*`）並呼叫 `ETH_NET_DEVICE_DT_INST_DEFINE` 建立網路介面。
+4. 創建代碼說明
+
+   ```
+   #define DM9051_DEFINE(inst) \
+    static struct dm9051_runtime dm9051_runtime_##inst = { \
+      ... \
+    }; \
+    static const struct dm9051_config dm9051_config_##inst = { \
+      ... \
+    }; \
+    ETH_NET_DEVICE_DT_INST_DEFINE(inst, eth_dm9051_init, NULL, &dm9051_runtime_##inst, \  
+                      &dm9051_config_##inst, CONFIG_ETH_INIT_PRIORITY, &api_funcs, \
+                      NET_ETH_MTU);
+
+   DT_INST_FOREACH_STATUS_OKAY(DM9051_DEFINE);
+   ```
+    
+    `inst` 不是字串，而是編譯期的「實例索引」整數。
+    `DT_INST_FOREACH_STATUS_OKAY(DM9051_DEFINE)` 會對所有 `compatible = "davicom,dm9051"` 且 `status = "okay"` 的節點，依裝置樹掃描順序依序傳入 0、1、2… 來展開 `DM9051_DEFINE(inst)`。
+    這個索引用來：
+    - 拼出靜態物件名稱：`dm9051_runtime_0`、`dm9051_config_0` 等。
+    - `ETH_NET_DEVICE_DT_INST_DEFINE` 會用該實例建裝置，實際的 `dev->name` 通常會被展開成 `DM9051@0`、`DM9051@1` 這類名稱（依實例索引）。
+
+  5. **如何用 overlay 開/關 `int-gpios` / `reset-gpios`（不改 driver）**
+
+- [eth_dm9051.c](vscode-file://vscode-app/c:/Users/joseph/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/code/electron-browser/workbench/workbench.html) 會用  
+    `GPIO_DT_SPEC_INST_GET_OR(..., {0})`，當 overlay **沒寫**  
+    `int-gpios` / `reset-gpios` 時，`port == NULL`，  
+    驅動就會自動走：
+    - 沒 `int-gpios` → Polling mode（`cint(dev)==false`）
+    - 沒 `reset-gpios` → 不做硬體 reset（`crst(dev)==false`）
+
+
+   6. 在 [overlay_nrf54l15_dm9051.overlay](vscode-file://vscode-app/c:/Users/joseph/AppData/Local/Programs/Microsoft%20VS%20Code/resources/app/out/vs/code/electron-browser/workbench/workbench.html) 的 `dm9051@0` 區塊：
+
+- 開中斷：加上例如 `int-gpios = <&gpio0 3 GPIO_ACTIVE_LOW>;`
+    - 這會用到 `gpio0 -> gpiote30`，所以 `&gpiote30` 必須 `okay`
+- 開 reset：加上 `reset-gpios = <&gpioX PIN GPIO_ACTIVE_LOW>;`
+    - 若你要用 `gpio2`，需另外確認 SoC/board 是否有 `gpio2`  
+        與其對應的 `gpiote-instance` 也必須 `okay`
+- 關中斷：不要寫 `int-gpios`（或註解掉）
+- 關 reset：不要寫 `reset-gpios`
+
+| 將開中斷,開reset改成關中斷,關reset              |
+| ------------------------------------ |
+| ![[Pasted image 20251218101936.png]] |
 
 ### eth_dm9051_priv.h
 定義 DM9051 晶片的：
