@@ -31,7 +31,20 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg);
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len);
 
+#ifdef CONFIG_ETH_DM9051_DEBUG_PRINTS
+#define DM9051_DBG(...) printk(__VA_ARGS__)
 extern int endc;
+#define DM9051_ENDC_INC() (endc++)
+#define DM9051_ENDC_GET() (endc)
+#define DM9051_ENDC_SAVE(sav) int sav = DM9051_ENDC_INC()
+#define DM9051_ENDC_RETRIVE(sav) sav
+#else
+#define DM9051_DBG(...) do { } while (0)
+#define DM9051_ENDC_INC() (0)
+#define DM9051_ENDC_GET() (0)
+#define DM9051_ENDC_SAVE(sav)
+#define DM9051_ENDC_RETRIVE(sav)
+#endif
 
 /**
  * @brief Drop packet from DM9051's memory to prevent blocking
@@ -40,8 +53,16 @@ extern int endc;
  */
 static void dm9051_drop_packet(const struct device *dev, uint16_t rx_len)
 {
-	uint8_t dummy[rx_len];
-	dm9051_read_mem(dev, dummy, rx_len);
+	/* Avoid VLA/large stack usage: discard in bounded chunks. */
+	uint8_t dummy[32];
+	uint16_t remaining = rx_len;
+
+	while (remaining > 0) {
+		uint16_t chunk = MIN(remaining, (uint16_t)sizeof(dummy));
+
+		dm9051_read_mem(dev, dummy, chunk);
+		remaining -= chunk;
+	}
 	
 	/* MBNDRY_DEFAULT - Pad to even length */
 	if (rx_len & 1) {
@@ -424,11 +445,6 @@ static void dm9051_set_mac_address(const struct device *dev, const uint8_t *mac)
 	for (int i = 0; i < 6; i++) {
 		dm9051_write_reg(dev, DM9051_PAR + i, mac[i]);
 	}
-
-	// LOG_INF("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x", dev->name, mac[0], mac[1], mac[2],
-	//	mac[3], mac[4], mac[5]);
-	//	printk("INFO%s: MAC %02x:%02x:%02x:%02x:%02x:%02x\n", dev->name, mac[0], mac[1],
-	// mac[2], 		mac[3], mac[4], mac[5]);
 }
 
 /**
@@ -546,23 +562,6 @@ static int eth_dm9051_tx(const struct device *dev, struct net_pkt *pkt)
  * @param  ...      Variable arguments
  * @return          0 after reset completion
  */
-uint16_t env_err_rsthdlr3(const char *format, ...)
-{
-  char bff[180];
-  int val;
-  va_list args;
-
-  va_start(args, format);
-  val = va_arg(args, int);
-  sprintf(bff, format, val);
-  printf("%s", bff);
-  va_end(args);
-
-  //dm9051_core_reset(dev); //cspi_core_reset();
-  //dm9051_set_receive(dev); //cspi_core_start1();
-  return 0;
-}
-
 void env_err_rst(const struct device *dev)
 {
   dm9051_core_reset(dev); //cspi_core_reset();
@@ -613,16 +612,12 @@ static int dm9051_rx_packet(const struct device *dev)
 	/* Validate packet */
 	if (rx_status & RSR_ERR_BITS) {
 		LOG_ERR("%s: RX error status=0x%02x", dev->name, rx_status);
-		env_err_rsthdlr3("_dm9051 rx_status error : 0x%02x\n",
-                                          rx_status);
 		env_err_rst(dev);
 		return -EIO;
 	}
 
 	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4 || rx_len < 4) {
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
-		env_err_rsthdlr3("_dm9051 rx_len error : %u\n",
-                                          rx_len);
 		env_err_rst(dev);
 		return -EINVAL;
 	}
@@ -676,7 +671,7 @@ static int dm9051_rx_packet(const struct device *dev)
 		//uint8_t dummy[rx_len];
 		//dm9051_read_mem(dev, dummy, rx_len);
 		static uint16_t times = 0;
-		env_err_rsthdlr3("dm9 impossible pkt_read_from error times : %u\n", ++times);
+		LOG_ERR("dm9 pkt_read_from error times : %u", ++times);
 		env_err_rst(dev);
 		return -EIO;
 	}
@@ -730,14 +725,14 @@ static uint8_t dm9051_link_status(const struct device *dev)
 	// if (bmsr & 0x01) --- PHY_STATUS_LINK = 0x0004
 	if (nsr & NSR_LINKST) {
 		if (context->link_up != true) {
-			printk("\n(link_status.o=%d)\n", endc++);
+			DM9051_DBG("\n(link_status.o=%d)\n", DM9051_ENDC_INC());
 			LOG_INF("%s: Link up", dev->name);
 			context->link_up = true;
 			net_eth_carrier_on(context->iface);
 		}
 	} else {
 		if (context->link_up != false) {
-			printk("\n(link_status.x=%d)\n", endc++);
+			DM9051_DBG("\n(link_status.x=%d)\n", DM9051_ENDC_INC());
 			LOG_INF("%s: Link down", dev->name);
 			context->link_up = false;
 			net_eth_carrier_off(context->iface);
@@ -759,8 +754,6 @@ static void dm9051_gpio_callback(const struct device *dev, struct gpio_callback 
 	struct dm9051_runtime *context = CONTAINER_OF(cb, struct dm9051_runtime, gpio_cb);
 
 	// dm9051_interrupt_disble_irq(dev);
-	// printk("---------DM9051 INT.s pins=0x%x sem_count=%u--------\n", 
-	//       pins, k_sem_count_get(&context->int_sem));
 	k_sem_give(&context->int_sem);
 }
 
@@ -789,7 +782,7 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 			if (res == 0) {
 				if (int_count % 100 == 0) {
 					flg_print_rx_status = 1;
-					printk("--------- %5d DM9051 INT.s sem_count=%u --------\n", 
+					DM9051_DBG("--------- %5d DM9051 INT.s sem_count=%u --------\n", 
 					       int_count, k_sem_count_get(&context->int_sem)+1);
 				}
 			} else {
@@ -802,6 +795,8 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		} else {
 			/* Polling mode: periodic check every 10ms */
 			k_sem_take(&context->int_sem, K_MSEC(config->timeout)); //polling
+			/* support update link status */
+			dm9051_link_status(dev);
 		}
 
 		/* Take semaphore to protect SPI access */
@@ -816,11 +811,13 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 		k_sem_give(&context->tx_rx_sem);
 		if (flg_print_rx_status) {
 			flg_print_rx_status = 0;
-			printk("---------%5d DM9051 INT.e sem_count=%u nRX=%d--------\n", 
+			DM9051_DBG("---------%5d DM9051 INT.e sem_count=%u nRX=%d--------\n", 
 			       int_count, k_sem_count_get(&context->int_sem), loop_count);
 		}
 		int_count++;
-		dm9051_interrupt_reset_for_cb_sem(dev);
+		if (cint(dev)) {
+			dm9051_interrupt_reset_for_cb_sem(dev);
+		}
 	}
 }
 
@@ -859,24 +856,19 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 
 #if 1
 		/* Set MAC address */
-		printk("\n\n");
 		dm9051_set_mac_address(dev, context->mac_address);
-		printk("_dm9051_set_config: MAC, %02x:%02x:%02x:%02x:%02x:%02x\n",
+		LOG_INF("_dm9051_set_config: MAC, %02x:%02x:%02x:%02x:%02x:%02x",
 		       context->mac_address[0], context->mac_address[1], context->mac_address[2],
 		       context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 
 		/* Configure receive */
 		dm9051_set_receive(dev);
-		printk("_dm9051_set_config: DM9051_RCR configured, RCR_DEFAULT | RCR_RXEN\n");
 #endif
 
 		if (context->iface != NULL) {
 			net_if_set_link_addr(context->iface, context->mac_address,
 					     sizeof(context->mac_address), NET_LINK_ETHERNET);
 		}
-
-		printk("%s: _dm9051_set_config: Interface configured [(set mac address)]\n",
-		       dev->name);
 		return 0;
 
 #ifdef CONFIG_NET_PROMISCUOUS_MODE
@@ -978,7 +970,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 {
 	const struct device *dev = net_if_get_device(iface);
 	struct dm9051_runtime *context = dev->data;
-	int through_c = endc++;
+	DM9051_ENDC_SAVE(through_c);
 
 	net_if_set_link_addr(iface, context->mac_address, sizeof(context->mac_address),
 			     NET_LINK_ETHERNET);
@@ -1005,8 +997,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
-	printk("(end.e=%d)\n", through_c);
-	printk("iface_init.e\n");
+	DM9051_DBG("(end.e=%d)\n", DM9051_ENDC_RETRIVE(through_c));
+	DM9051_DBG("iface_init.e\n");
 }
 
 static const struct ethernet_api api_funcs = {
@@ -1016,19 +1008,15 @@ static const struct ethernet_api api_funcs = {
 	.send = eth_dm9051_tx,
 };
 
-void dm9051_init_log(const struct device *dev)
+void dm9051_init_debug_log(const struct device *dev)
 {
-	// const struct dm9051_config *config = dev->config;
-	printk("_eth_dm9051_init: INFO: ========================================\n");
-	printk("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
-	printk("_eth_dm9051_init: INFO: dev->config->spi.bus->name: %s\n",
+	DM9051_DBG("_eth_dm9051_init: INFO: ========================================\n");
+	DM9051_DBG("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
+	DM9051_DBG("_eth_dm9051_init: INFO: dev->config->spi.bus->name: %s\n",
 	       ((struct dm9051_config *)dev->config)->spi.bus->name);
-	printk("_eth_dm9051_init: INFO: dev->config->spi.config.frequency: %u MHz\n",
+	DM9051_DBG("_eth_dm9051_init: INFO: dev->config->spi.config.frequency: %u MHz\n",
 	       ((struct dm9051_config *)dev->config)->spi.config.frequency / 1000000);
-	// printk("_eth_dm9051_init: INFO: dev->config->spi.config.cs.gpio.port->name: %s, Pin: %d "
-	//" (but now hard code Pin: %d)\n",
-	// dev->config->spi.config.cs.gpio.port->name, dev->config->spi.config.cs.gpio.pin, 2);
-	printk("_eth_dm9051_init: INFO: ========================================\n");
+	DM9051_DBG("_eth_dm9051_init: INFO: ========================================\n");
 }
 
 static int dm9051_config_reset_gpio(const struct device *dev)
@@ -1036,7 +1024,7 @@ static int dm9051_config_reset_gpio(const struct device *dev)
 	const struct dm9051_config *config = dev->config;
 
 	if (!crst(dev)) {
-		printk("_eth_dm9051_init: Skipping reset GPIO (not defined)\n");
+		LOG_INF("_eth_dm9051_init: Skipping reset GPIO (not defined)");
 		return 0;
 	}
 
@@ -1050,7 +1038,7 @@ static int dm9051_config_reset_gpio(const struct device *dev)
 		return -EINVAL;
 	}
 
-	printk("_eth_dm9051_init: Reset GPIO configured - Port: %s, Pin: %d\n",
+	DM9051_DBG("_eth_dm9051_init: Reset GPIO configured - Port: %s, Pin: %d\n",
 	       config->reset.port->name, config->reset.pin);
 	return 0;
 }
@@ -1061,11 +1049,11 @@ static int dm9051_config_interrupt_gpio(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 
 	if (!cint(dev)) {
-		printk("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)\n");
+		LOG_INF("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)");
 		return 0;
 	}
 
-	printk("_eth_dm9051_init: Configuring INTERRUPT mode\n");
+	LOG_INF("_eth_dm9051_init: Configuring INTERRUPT mode");
 
 	if (!gpio_is_ready_dt(&config->interrupt)) {
 		LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
@@ -1084,8 +1072,9 @@ static int dm9051_config_interrupt_gpio(const struct device *dev)
 		return -EINVAL;
 	}
 
-	gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_FALLING);
-	printk("_eth_dm9051_init: Interrupt GPIO configured - Port: %s, Pin: %d\n",
+	/* Use edge-to-active to respect GPIO_ACTIVE_LOW/HIGH from devicetree. */
+	gpio_pin_interrupt_configure_dt(&config->interrupt, GPIO_INT_EDGE_TO_ACTIVE);
+	DM9051_DBG("_eth_dm9051_init: Interrupt GPIO configured - Port: %s, Pin: %d\n",
 	       config->interrupt.port->name, config->interrupt.pin);
 	return 0;
 }
@@ -1114,7 +1103,7 @@ static void dm9051_hw_reset(const struct device *dev)
 	gpio_pin_set_dt(&config->reset, 0);
 	k_msleep(10);
 
-	printk("_eth_dm9051_init: Hardware reset complete\n");
+	DM9051_DBG("_dm9051_hw_reset: Hardware reset complete\n");
 }
 
 /**
@@ -1137,18 +1126,15 @@ static uint16_t dm9051_detect_id(const struct device *dev)
 
 	/* Verify chip ID before reset */
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		printk("_eth_dm9051_init: ERROR: Invalid chip ID: 0x%04x (expected 0x9051 or "
-		       "0x9058)\n",
-		       chip_id);
+		LOG_ERR("Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058), Re-try", chip_id);
 
 		while (1) {
 			chip_id = dm9051_get_chipid(dev);
 			if (chip_id == 0x9051 || chip_id == 0x9058) {
-				printk("\nINFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
+				LOG_INF("INFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
 				break;
 			}
-			printk(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
-			printk(" (LOOP-TEST: delay)");
+			LOG_INF(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
 			k_msleep(1000);
 		}
 		return 0;
@@ -1159,16 +1145,15 @@ static uint16_t dm9051_detect_id(const struct device *dev)
 
 static int dm9051_init_mac(const struct device *dev)
 {
-	printk("\n(start.s=%d) MBNDRY_DEFAULT %s\n", endc, MBNDRY_DEFAULT == MBNDRY_WORD ? "MBNDRY_WORD" : "NA");
+	DM9051_DBG("\n(start.s=%d) MBNDRY_DEFAULT %s\n", DM9051_ENDC_GET(),
+		   MBNDRY_DEFAULT == MBNDRY_WORD ? "MBNDRY_WORD" : "NA");
 		   
 	/* Detect and verify chip ID */
 	uint16_t chip_id = dm9051_detect_id(dev);
 	if (chip_id == 0)
 		return -ENODEV;
 
-	printk("(init_mac.s=%d) RX %s Chip ID: 0x%04x\n", endc++,
-	       cint(dev) ? "INTERRUPT mode" : "POLL mode",
-			chip_id);
+	LOG_INF("dm9051_detect_id.e: Chip ID 0x%04x", chip_id);
 
 	/* Perform core reset */
 	dm9051_core_reset(dev);
@@ -1176,7 +1161,7 @@ static int dm9051_init_mac(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 	/* Priority 1: devicetree local-mac-address (already copied into context) */
 	if (dm9051_mac_is_valid(context->mac_address)) {
-	printk("dm9051_init_mac.e: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+	LOG_INF("dm9051_init_mac.e: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1185,7 +1170,7 @@ static int dm9051_init_mac(const struct device *dev)
 	/* Priority 2: try NVS */
 	if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
 		dm9051_mac_is_valid(context->mac_address)) {
-	printk("dm9051_init_mac.e: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+	LOG_INF("dm9051_init_mac.e: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1193,7 +1178,7 @@ static int dm9051_init_mac(const struct device *dev)
 
 	/* Priority 3: fallback random locally administered unicast */
 	dm9051_generate_random_mac(context->mac_address);
-	printk("dm9051_init_mac.e: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x\n",
+	LOG_INF("dm9051_init_mac.e: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1207,15 +1192,13 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Check SPI is ready */
 	if (!spi_is_ready_dt(&config->spi)) {
-		printk("_eth_dm9051_init: SPI not ready\n");
+		LOG_ERR("%s: SPI not ready", dev->name);
 		return -ENODEV;
 	}
 
 	/* Print SPI configuration */
-	printk("\n\n");
-	printk("_eth_dm9051_init: eth_dm9051_init.s8.7\n");
-	dm9051_init_log(dev); /* Print detailed GPIO information */
-	printk("_eth_dm9051_init: CS automatically controlled by SPI driver (P1.2)\n");
+	LOG_INF("_eth_dm9051_init: eth_dm9051_init.s8.7");
+	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
 
 	/* CS GPIO is automatically configured and controlled by SPI driver layer.
 	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
@@ -1247,11 +1230,6 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Set carrier on after successful initialization */
 	context->iface_carrier_on_init = true;
-
-	//printk("dm9051_init.e: (set mac address, %02x:%02x:%02x:%02x:%02x:%02x) Chip ID: "
-	//       "0x%04x\n",
-	//       context->mac_address[0], context->mac_address[1], context->mac_address[2],
-	//       context->mac_address[3], context->mac_address[4], context->mac_address[5], chip_id);
 	return 0;
 }
 
