@@ -33,9 +33,9 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 
 #ifdef CONFIG_ETH_DM9051_DEBUG_PRINTS
 #define DM9051_DBG(...) printk(__VA_ARGS__)
-extern int endc;
-#define DM9051_ENDC_INC() (endc++)
-#define DM9051_ENDC_GET() (endc)
+int drvc;
+#define DM9051_ENDC_INC() (drvc++)
+#define DM9051_ENDC_GET() (drvc)
 #define DM9051_ENDC_SAVE(sav) int sav = DM9051_ENDC_INC()
 #define DM9051_ENDC_RETRIVE(sav) sav
 #else
@@ -725,6 +725,7 @@ static uint8_t dm9051_link_status(const struct device *dev)
 	// if (bmsr & 0x01) --- PHY_STATUS_LINK = 0x0004
 	if (nsr & NSR_LINKST) {
 		if (context->link_up != true) {
+			printk("\n");
 			DM9051_DBG("\n(link_status.o=%d)\n", DM9051_ENDC_INC());
 			LOG_INF("%s: Link up", dev->name);
 			context->link_up = true;
@@ -1198,7 +1199,7 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Print SPI configuration */
 	printk("\n");
-	LOG_INF("_eth_dm9051_init: eth_dm9051_init.s8.8");
+	LOG_INF("_eth_dm9051_init: eth_dm9051_init (s8.8)");
 	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
 
 	/* CS GPIO is automatically configured and controlled by SPI driver layer.

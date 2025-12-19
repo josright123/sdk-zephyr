@@ -19,8 +19,7 @@ config ETH_DM9051_DEBUG_PRINTS
 	default n
 	help
 	  Enable verbose printk-based debug output in the DM9051 driver.
-	  Disable to reduce console noise and avoid depending on external
-	  debug symbols like 'endc'.
+	  Disable to reduce console noise
 
 config ETH_DM9051_RX_THREAD_STACK_SIZE
 	int "Stack size for internal incoming packet handler"
