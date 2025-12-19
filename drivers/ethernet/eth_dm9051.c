@@ -1197,7 +1197,8 @@ static int eth_dm9051_init(const struct device *dev)
 	}
 
 	/* Print SPI configuration */
-	LOG_INF("_eth_dm9051_init: eth_dm9051_init.s8.7");
+	printk("\n");
+	LOG_INF("_eth_dm9051_init: eth_dm9051_init.s8.8");
 	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
 
 	/* CS GPIO is automatically configured and controlled by SPI driver layer.
