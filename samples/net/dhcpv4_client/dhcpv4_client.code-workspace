@@ -1,0 +1,15 @@
+{
+  "folders": [
+    {
+      "path": "."
+    },
+    {
+      "path": "E:\\gemini2\\w47.zephyr\\nRF_zephyr"
+    }
+  ],
+  "settings": {
+    "git.autoRepositoryDetection": "subFolders",
+    "git.detectSubmodules": true,
+    "git.repositoryScanMaxDepth": 3
+  }
+}
