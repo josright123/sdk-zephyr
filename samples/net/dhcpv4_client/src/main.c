@@ -64,8 +64,8 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 				      sizeof(buf)));
 		LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
 			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf)));
-		LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
-			iface->config.dhcpv4.lease_time);
+		//LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
+		//	iface->config.dhcpv4.lease_time);
 	}
 }
 

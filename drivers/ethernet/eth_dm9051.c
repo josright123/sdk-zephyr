@@ -727,7 +727,7 @@ static uint8_t dm9051_link_status(const struct device *dev)
 		if (context->link_up != true) {
 			printk("\n");
 			DM9051_DBG("\n(link_status.o=%d)\n", DM9051_ENDC_INC());
-			LOG_INF("%s: Link up", dev->name);
+			LOG_INF("+%s: Link up", dev->name);
 			context->link_up = true;
 			net_eth_carrier_on(context->iface);
 		}
@@ -1050,11 +1050,11 @@ static int dm9051_config_interrupt_gpio(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 
 	if (!cint(dev)) {
-		LOG_INF("_eth_dm9051_init: Configuring POLLING mode (no int-gpios defined)");
+		LOG_INF("_eth_dm9051_init: POLLING mode (no int-gpios defined)");
 		return 0;
 	}
 
-	LOG_INF("_eth_dm9051_init: Configuring INTERRUPT mode");
+	LOG_INF("_eth_dm9051_init: INTERRUPT mode (int-gpios defined)");
 
 	if (!gpio_is_ready_dt(&config->interrupt)) {
 		LOG_ERR("GPIO port %s not ready", config->interrupt.port->name);
@@ -1154,7 +1154,8 @@ static int dm9051_init_mac(const struct device *dev)
 	if (chip_id == 0)
 		return -ENODEV;
 
-	LOG_INF("dm9051_detect_id.e: Chip ID 0x%04x", chip_id);
+	printk("\n");
+	LOG_INF("dm9051_init: +Chip ID 0x%04x", chip_id);
 
 	/* Perform core reset */
 	dm9051_core_reset(dev);
@@ -1162,7 +1163,7 @@ static int dm9051_init_mac(const struct device *dev)
 	struct dm9051_runtime *context = dev->data;
 	/* Priority 1: devicetree local-mac-address (already copied into context) */
 	if (dm9051_mac_is_valid(context->mac_address)) {
-	LOG_INF("dm9051_init_mac.e: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x",
+	LOG_INF("dm9051_init: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1171,7 +1172,7 @@ static int dm9051_init_mac(const struct device *dev)
 	/* Priority 2: try NVS */
 	if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
 		dm9051_mac_is_valid(context->mac_address)) {
-	LOG_INF("dm9051_init_mac.e: Using CHIP MAC address %02x:%02x:%02x:%02x:%02x:%02x",
+	LOG_INF("dm9051_init: Using CHIP MAC addr %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1179,7 +1180,7 @@ static int dm9051_init_mac(const struct device *dev)
 
 	/* Priority 3: fallback random locally administered unicast */
 	dm9051_generate_random_mac(context->mac_address);
-	LOG_INF("dm9051_init_mac.e: Using random MAC address %02x:%02x:%02x:%02x:%02x:%02x",
+	LOG_INF("dm9051_init: Using random MAC addr %02x:%02x:%02x:%02x:%02x:%02x",
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1199,7 +1200,7 @@ static int eth_dm9051_init(const struct device *dev)
 
 	/* Print SPI configuration */
 	printk("\n");
-	LOG_INF("_eth_dm9051_init: eth_dm9051_init (s8.8)");
+	LOG_INF("_eth_dm9051_init: +eth_dm9051_init (s8.8)");
 	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
 
 	/* CS GPIO is automatically configured and controlled by SPI driver layer.
