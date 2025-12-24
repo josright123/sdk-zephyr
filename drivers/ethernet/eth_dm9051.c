@@ -728,7 +728,7 @@ static uint8_t dm9051_link_status(const struct device *dev)
 		if (context->link_up != true) {
 			printk("\n");
 			DM9051_DBG("\n(link_status.o=%d)\n", DM9051_ENDC_INC());
-			LOG_INF("+%s: Link up", dev->name);
+			LOG_INF("_dm9051_link_status: +%s: Link up", dev->name);
 			context->link_up = true;
 			net_eth_carrier_on(context->iface);
 		}
