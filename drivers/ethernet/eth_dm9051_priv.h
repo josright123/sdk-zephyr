@@ -229,16 +229,10 @@ struct dm9051_config {
 
 	int32_t timeout_pkt;
 	int32_t timeout;
-
-	int16_t mcu_spi_max_len;
-	int8_t link_mode;
 };
 
 struct dm9051_runtime {
 	struct net_if *iface;
-
-	// struct k_mutex spi_mutex;
-	// struct k_mutex tx_mutex;
 	struct k_sem tx_rx_sem;
 	struct k_sem int_sem;
 
@@ -247,17 +241,12 @@ struct dm9051_runtime {
 
 	struct gpio_callback gpio_cb;
 
-#ifdef CONFIG_ETH_DM9051_MULTICAST_FILTER
-	uint8_t multcast_hashtable[65];
-#endif
 	uint8_t mac_address[6];
 
-	bool device_ready;
-	bool link_up;
-
-	uint8_t nsr_cnt;
+	bool link_up: 1;
 	bool iface_initialized: 1;
 	bool iface_carrier_on_init: 1;
+	//bool device_ready: 1;
 };
 
 #define PHY_STATUS_REG (0x01) /*!< basic mode status register */

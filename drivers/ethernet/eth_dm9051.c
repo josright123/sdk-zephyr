@@ -464,9 +464,10 @@ static void dm9051_set_multicast(const struct device *dev)
  */
 static void dm9051_set_receive(const struct device *dev)
 {
+#if 0
 	/* Configure multicast addresses */
 	dm9051_set_multicast(dev);
-
+#endif
 	/* Configure flow control */
 	dm9051_write_reg(dev, DM9051_FCR, FCR_DEFAULT);
 	dm9051_phy_write(dev, PHY_ADV_REG, 0x0400 | 0x01e1);
@@ -902,19 +903,24 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 		/* Configure MAC Address Register (MAR) for multicast filtering */
 		if (config->filter.type == ETHERNET_FILTER_TYPE_SET_MULTICAST) {
 			const struct ethernet_filter_multicast *filter = &config->filter.multicast;
-			uint32_t hash;
 			uint8_t mar[8] = {0};
 
 			k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
-			/* Calculate hash for the multicast address */
-			hash = ((uint32_t)filter->mac_address.addr[0] << 24) |
-			       ((uint32_t)filter->mac_address.addr[1] << 16) |
-			       ((uint32_t)filter->mac_address.addr[2] << 8) |
-			       ((uint32_t)filter->mac_address.addr[3]);
+			/* Calculate CRC32 hash for the multicast MAC address */
+			uint32_t crc = 0xFFFFFFFF;
+			for (int j = 0; j < 6; j++) {
+				crc ^= filter->mac_address.addr[j];
+				for (int i = 0; i < 8; i++) {
+					if (crc & 1)
+						crc = (crc >> 1) ^ 0xEDB88320;
+					else
+						crc = crc >> 1;
+				}
+			}
 
-			/* Use CRC to determine hash table position */
-			uint8_t hash_bit = (hash >> 26) & 0x3f;
+			/* Use lower 6 bits of CRC32 to determine hash table position */
+			uint8_t hash_bit = crc & 0x3F;
 			uint8_t mar_index = hash_bit / 8;
 			uint8_t bit_index = hash_bit % 8;
 
@@ -1228,6 +1234,10 @@ static int eth_dm9051_init(const struct device *dev)
 	/* Set MAC address */
 	dm9051_set_mac_address(dev, context->mac_address); // to be checked! more!
 
+#if 1
+	/* Configure multicast addresses */
+	dm9051_set_multicast(dev);
+#endif
 	/* Configure receive */
 	dm9051_set_receive(dev);
 

@@ -37,23 +37,35 @@ config ETH_DM9051_RX_THREAD_PRIO
 	  Priority level for internal thread which is ran for incoming
 	  packet processing.
 
-config ETH_DM9051_CLKRDY_INIT_WAIT_MS
-	int "Time to wait for the CLKRDY bit on driver init"
-	depends on ETH_DM9051
-	default 2
+config ETH_DM9051_TX_CHECKSUM_OFFLOAD
+	bool "Enable DM9051 checksum offload"
+	default n
 	help
-	  Timeout in milliseconds. Maximum time the initialisation
-	  of the driver will wait for the OST to expire, indicated
-	  by the CLKRDY bit set. If timeout driver init will fail
-	  with -ETIMEDOUT.
+	  Enable checksum offload.
 
-config ETH_DM9051_TIMEOUT
-	int "IP buffer timeout"
-	depends on ETH_DM9051
-	default 100
+config ETH_DM9051_MULTICAST_FILTER
+	bool "Enable DM9051 multicast pass all"
+	default n
 	help
-	  Given timeout in milliseconds. Maximum amount of time
-	  that the driver will wait from the IP stack to get
-	  a memory buffer before the Ethernet frame is dropped.
+	  Enable multicast pass all.
+
+#config ETH_DM9051_CLKRDY_INIT_WAIT_MS
+#	int "Time to wait for the CLKRDY bit on driver init"
+#	depends on ETH_DM9051
+#	default 2
+#	help
+#	  Timeout in milliseconds. Maximum time the initialisation
+#	  of the driver will wait for the OST to expire, indicated
+#	  by the CLKRDY bit set. If timeout driver init will fail
+#	  with -ETIMEDOUT.
+
+#config ETH_DM9051_TIMEOUT
+#	int "IP buffer timeout"
+#	depends on ETH_DM9051
+#	default 100
+#	help
+#	  Given timeout in milliseconds. Maximum amount of time
+#	  that the driver will wait from the IP stack to get
+#	  a memory buffer before the Ethernet frame is dropped.
 
 endif # ETH_DM9051
