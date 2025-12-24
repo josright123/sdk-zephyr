@@ -72,3 +72,37 @@ CONFIG_GPIO=y
 CONFIG_LOG_BACKEND_UART=y
 CONFIG_SHELL_LOG_BACKEND=n
 CONFIG_CLOCK_CONTROL_NRF_K32SRC_RC=y
+
+## 專案目錄結構圖
+
+```
+nrf/
+├── samples/net/http_server/
+│   ├── CMakeLists.txt              # 建置腳本
+│   ├── prj.conf                    # 主配置檔案
+│   ├── boards/
+│   │   ├── nrf54l15dk_nrf54l15_cpuapp.conf      # 板級配置
+│   │   └── nrf54l15dk_nrf54l15_cpuapp.overlay   # 板級 Device Tree
+│   └── src/
+│       └── main.c                  # 應用程式主程式
+
+zephyr/
+├── dts/bindings/ethernet/
+│   └── davicom,dm9051.yaml
+│
+├── samples/net/dhcpv4_client/
+│   ├── CMakeLists.txt              # 建置腳本
+│   ├── prj.conf                    # 主配置檔案
+│   ├── boards/
+│   │   ├── nrf54l15dk_nrf54l15_cpuapp.conf      # 板級配置
+│   │   └── nrf54l15dk_nrf54l15_cpuapp.overlay   # 板級 Device Tree
+│   └── src/
+│       └── main.c                  # 應用程式主程式
+│
+└── drivers/ethernet/
+    ├── CMakeLists.txt              # 建置腳本
+    ├── Kconfig                     # Kconfig
+    ├── Kconfig.dm9051              # DM9051 Kconfig
+    ├── eth_dm9051.c                # DM9051 驅動實作
+    └── eth_dm9051_priv.h           # DM9051 私有標頭檔
+```
