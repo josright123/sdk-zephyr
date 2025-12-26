@@ -1004,8 +1004,7 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
-	DM9051_DBG("(end.e=%d)\n", DM9051_ENDC_RETRIVE(through_c));
-	DM9051_DBG("iface_init.e\n");
+	DM9051_DBG("(iface_init.e=%d)\n", DM9051_ENDC_RETRIVE(through_c));
 }
 
 static const struct ethernet_api api_funcs = {
@@ -1015,15 +1014,32 @@ static const struct ethernet_api api_funcs = {
 	.send = eth_dm9051_tx,
 };
 
+void dm9051_init_title_log(char *head)
+{
+	printk("\n");
+	LOG_INF("_eth_dm9051_init: +eth_dm9051_init %s", head);
+}
+
 void dm9051_init_debug_log(const struct device *dev)
 {
-	DM9051_DBG("_eth_dm9051_init: INFO: ========================================\n");
-	DM9051_DBG("_eth_dm9051_init: INFO: dev->name = %s\n", dev->name);
-	DM9051_DBG("_eth_dm9051_init: INFO: dev->config->spi.bus->name: %s\n",
+	DM9051_DBG("(dm9051_init_debug_log) ========================================\n");
+	DM9051_DBG("(dm9051_init_debug_log) dev->name = %s\n", dev->name);
+	DM9051_DBG("(dm9051_init_debug_log) dev->config->spi.bus->name: %s\n",
 	       ((struct dm9051_config *)dev->config)->spi.bus->name);
-	DM9051_DBG("_eth_dm9051_init: INFO: dev->config->spi.config.frequency: %u MHz\n",
+	DM9051_DBG("(dm9051_init_debug_log) dev->config->spi.config.frequency: %u MHz\n",
 	       ((struct dm9051_config *)dev->config)->spi.config.frequency / 1000000);
-	DM9051_DBG("_eth_dm9051_init: INFO: ========================================\n");
+	DM9051_DBG("(dm9051_init_debug_log) ========================================\n");
+}
+
+int dm9051_init_chip_log(char *head, const struct device *dev, uint16_t chip_id)
+{
+	struct dm9051_runtime *context = dev->data;
+
+	printk("\n");
+	LOG_INF("dm9051_init: +Chip ID 0x%04x, Using %s %02x:%02x:%02x:%02x:%02x:%02x", chip_id, head,
+			context->mac_address[0], context->mac_address[1], context->mac_address[2],
+			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
+	return 0;
 }
 
 static int dm9051_config_reset_gpio(const struct device *dev)
@@ -1152,7 +1168,8 @@ static uint16_t dm9051_detect_id(const struct device *dev)
 
 static int dm9051_init_mac(const struct device *dev)
 {
-	DM9051_DBG("\n(start.s=%d) MBNDRY_DEFAULT %s\n", DM9051_ENDC_GET(),
+	DM9051_ENDC_SAVE(through_c);
+	DM9051_DBG("(start.s=%d) MBNDRY_DEFAULT %s\n", through_c,
 		   MBNDRY_DEFAULT == MBNDRY_WORD ? "MBNDRY_WORD" : "NA");
 		   
 	/* Detect and verify chip ID */
@@ -1160,36 +1177,24 @@ static int dm9051_init_mac(const struct device *dev)
 	if (chip_id == 0)
 		return -ENODEV;
 
-	printk("\n");
-	LOG_INF("dm9051_init: +Chip ID 0x%04x", chip_id);
-
 	/* Perform core reset */
 	dm9051_core_reset(dev);
 
 	struct dm9051_runtime *context = dev->data;
 	/* Priority 1: devicetree local-mac-address (already copied into context) */
 	if (dm9051_mac_is_valid(context->mac_address)) {
-	LOG_INF("dm9051_init: Using DT MAC address %02x:%02x:%02x:%02x:%02x:%02x",
-			context->mac_address[0], context->mac_address[1], context->mac_address[2],
-			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-	return 0;
+		return dm9051_init_chip_log("DT MAC address", dev, chip_id);
 	}
 
 	/* Priority 2: try NVS */
 	if (dm9051_load_mac_from_current_fit(dev, context->mac_address) == 0 &&
 		dm9051_mac_is_valid(context->mac_address)) {
-	LOG_INF("dm9051_init: Using CHIP MAC addr %02x:%02x:%02x:%02x:%02x:%02x",
-			context->mac_address[0], context->mac_address[1], context->mac_address[2],
-			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-	return 0;
+		return dm9051_init_chip_log("CHIP MAC addr", dev, chip_id);
 	}
 
 	/* Priority 3: fallback random locally administered unicast */
 	dm9051_generate_random_mac(context->mac_address);
-	LOG_INF("dm9051_init: Using random MAC addr %02x:%02x:%02x:%02x:%02x:%02x",
-			context->mac_address[0], context->mac_address[1], context->mac_address[2],
-			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
-	return 0;
+	return dm9051_init_chip_log("random MAC addr", dev, chip_id);
 }
 
 static int eth_dm9051_init(const struct device *dev)
@@ -1204,10 +1209,7 @@ static int eth_dm9051_init(const struct device *dev)
 		return -ENODEV;
 	}
 
-	/* Print SPI configuration */
-	printk("\n");
-	LOG_INF("_eth_dm9051_init: +eth_dm9051_init (s8.8)");
-	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
+	dm9051_init_title_log("(s8.8)");
 
 	/* CS GPIO is automatically configured and controlled by SPI driver layer.
 	 * No manual GPIO configuration needed when cs-gpios is set in device tree.
@@ -1223,6 +1225,8 @@ static int eth_dm9051_init(const struct device *dev)
 	if (ret) {
 		return ret;
 	}
+
+	dm9051_init_debug_log(dev); /* Print detailed GPIO information */
 
 	/* Perform hardware reset */
 	dm9051_hw_reset(dev);
