@@ -989,13 +989,12 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 	ethernet_init(iface);
 
 	/* Set carrier status */
-	if (context->iface_carrier_on_init) {
+	if (context->link_up)
+	{
 		net_if_carrier_on(iface);
 	} else {
 		net_if_carrier_off(iface);
 	}
-
-	context->iface_initialized = true;
 
 	/* Create RX thread for packet reception */
 	k_thread_create(&context->thread, context->thread_stack,
@@ -1004,7 +1003,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
-	DM9051_DBG("(iface_init.e=%d)\n", DM9051_ENDC_RETRIVE(through_c));
+	DM9051_DBG("(iface_init.e=%d) %s: struct runtime link_up = %s\n", DM9051_ENDC_RETRIVE(through_c), 
+		dev->name, context->link_up ? "true" : "false");
 }
 
 static const struct ethernet_api api_funcs = {
@@ -1036,7 +1036,8 @@ int dm9051_init_chip_log(char *head, const struct device *dev, uint16_t chip_id)
 	struct dm9051_runtime *context = dev->data;
 
 	printk("\n");
-	LOG_INF("dm9051_init: +Chip ID 0x%04x, Using %s %02x:%02x:%02x:%02x:%02x:%02x", chip_id, head,
+	/*LOG_INF("_dm9051_mac: +ChipID %04x, Using %s %02x:%02x:%02x:%02x:%02x:%02x",*/
+	LOG_INF("_dm9051_mac: +ChipID %04x, Using %s %02x%02x%02x%02x%02x%02x", chip_id, head,
 			context->mac_address[0], context->mac_address[1], context->mac_address[2],
 			context->mac_address[3], context->mac_address[4], context->mac_address[5]);
 	return 0;
@@ -1244,9 +1245,6 @@ static int eth_dm9051_init(const struct device *dev)
 #endif
 	/* Configure receive */
 	dm9051_set_receive(dev);
-
-	/* Set carrier on after successful initialization */
-	context->iface_carrier_on_init = true;
 	return 0;
 }
 

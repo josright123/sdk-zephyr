@@ -244,8 +244,8 @@ struct dm9051_runtime {
 	uint8_t mac_address[6];
 
 	bool link_up: 1;
-	bool iface_initialized: 1;
-	bool iface_carrier_on_init: 1;
+	//bool iface_initialized: 1;
+	//bool iface_carrier_on_init: 1;
 	//bool device_ready: 1;
 };
 
