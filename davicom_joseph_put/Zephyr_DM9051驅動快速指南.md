@@ -27,24 +27,20 @@ CONFIG_ETH_DM9051_RX_THREAD_PRIO=2              # RX 執行緒優先權（預設
 
 ## Device Tree 硬件屬性
 
-### SPI 總線配置
+### SPI 引腳配置
 
-| 屬性              | 必要  | 範例                            | 說明              |
-| --------------- | --- | ----------------------------- | --------------- |
-| `status`        | ✓   | `"okay"`                      | 啟用 SPI 總線       |
-| `cs-gpios`      | ✓   | `<&gpio0 10 GPIO_ACTIVE_LOW>` | 片選腳位            |
-| `pinctrl-0`     | ✓   | `<&spi21_default>`            | 預設引腳配置          |
-| `pinctrl-1`     | ✗   | `<&spi21_sleep>`              | 睡眠引腳配置（省略則無低功耗） |
-| `pinctrl-names` | ✓   | `"default", "sleep"`          | 引腳配置名稱列表        |
+**SPI引腳配置屬性（在 &pinctrl 節點中定義）：**
 
-**引腳配置屬性（在 &pinctrl 節點中定義）：**
+| 屬性                 | 必要  | 範例                                                                                                  | 說明                     |
+| ------------------ | --- | --------------------------------------------------------------------------------------------------- | ---------------------- |
+| `psels`            | ✓   | `<NRF_PSEL(SPIM_SCK, 1, 3)>,`<br>`<NRF_PSEL(SPIM_MOSI, 1, 1)>,`<br>`<NRF_PSEL(SPIM_MISO, 1, 0)>` | SPI 引腳選擇（SCK/MOSI/MISO） |
+| `low-power-enable` | ✗   | （屬性存在即啟用）                                                                                           | 睡眠模式低功耗設定（僅用於 sleep 配置）  |
 
-| 屬性                 | 必要  | 範例                           | 說明                      |
-| ------------------ | --- | ---------------------------- | ----------------------- |
-| `psels`            | ✓   | `<NRF_PSEL(SPIM_SCK, 1, 3)>` | SPI 引腳選擇（SCK/MOSI/MISO） |
-| `low-power-enable` | ✗   | （屬性存在即啟用）                    | 睡眠模式低功耗設定（僅用於 sleep 配置）  |
+**SPI引腳配置範例（在 &pinctrl 節點中定義）：**
 
-**引腳配置範例（在 &pinctrl 節點中定義）：**
+- **`spi21_default`**：正常工作模式的引腳配置，定義 SPI 通訊所需的 SCK、MOSI、MISO 三個引腳
+- **`spi21_sleep`**：睡眠模式的引腳配置，使用相同引腳但啟用 `low-power-enable` 以降低功耗
+
 ```dts
 &pinctrl {
     spi21_default: spi21_default {
@@ -65,16 +61,21 @@ CONFIG_ETH_DM9051_RX_THREAD_PRIO=2              # RX 執行緒優先權（預設
 };
 ```
 
-### DM9051 設備節點
+### SPI 總線配置與DM9051 設備節點
 
-| 屬性                  | 必要  | 範例                           | 說明                |
-| ------------------- | --- | ---------------------------- | ----------------- |
-| `compatible`        | ✓   | `"davicom,dm9051"`           | 節點固定值             |
-| `reg`               | ✓   | `<0>`                        | SPI CS 編號         |
-| `spi-max-frequency` | ✓   | `<16000000>`                 | SPI 時脈（8~40MHz）   |
-| `int-gpios`         | ✗   | `<&gpio0 3 GPIO_ACTIVE_LOW>` | 中斷腳位（省略則 Polling） |
-| `reset-gpios`       | ✗   | `<&gpio2 0 GPIO_ACTIVE_LOW>` | 重置腳位（省略則無硬體重置）    |
-| `local-mac-address` | ✗   | `[00 60 6E 12 34 56]`        | MAC 位址（預設全零）      |
+| 節點          | 屬性                  | 必要  | 範例                           | 說明                |
+| ----------- | ------------------- | --- | ---------------------------- | ----------------- |
+| **&spi21**  | `status`            | ✓   | `"okay"`                     | 啟用 SPI 總線         |
+|             | `cs-gpios`          | ✓   | `<&gpio0 10 GPIO_ACTIVE_LOW>` | 片選腳位              |
+|             | `pinctrl-0`         | ✓   | `<&spi21_default>`           | 預設引腳配置            |
+|             | `pinctrl-1`         | ✗   | `<&spi21_sleep>`             | 睡眠引腳配置（省略則無低功耗）   |
+|             | `pinctrl-names`     | ✓   | `"default", "sleep"`         | 引腳配置名稱列表          |
+| **dm9051@0** | `compatible`        | ✓   | `"davicom,dm9051"`           | 節點固定值             |
+|             | `reg`               | ✓   | `<0>`                        | SPI CS 編號         |
+|             | `spi-max-frequency` | ✓   | `<16000000>`                 | SPI 時脈（8~40MHz）   |
+|             | `int-gpios`         | ✗   | `<&gpio0 3 GPIO_ACTIVE_LOW>` | 中斷腳位（省略則 Polling） |
+|             | `reset-gpios`       | ✗   | `<&gpio2 0 GPIO_ACTIVE_LOW>` | 重置腳位（省略則無硬體重置）    |
+|             | `local-mac-address` | ✗   | `[00 60 6E 12 34 56]`        | MAC 位址（預設全零）      |
 
 ## 快速硬件配置範例
 
