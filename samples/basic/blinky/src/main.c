@@ -35,13 +35,18 @@ int main(void)
 	}
 
 	while (1) {
+		int readback;
+
 		ret = gpio_pin_toggle_dt(&led);
 		if (ret < 0) {
+			printf("gpio_pin_toggle_dt failed: %d\n", ret);
 			return 0;
 		}
 
 		led_state = !led_state;
-		printf("LED state: %s\n", led_state ? "ON" : "OFF");
+		readback = gpio_pin_get_dt(&led);
+		printf("LED expected: %s, gpio_pin_get_dt: %d, toggle_ret: %d\n",
+		       led_state ? "ON" : "OFF", readback, ret);
 		k_msleep(SLEEP_TIME_MS);
 	}
 	return 0;
