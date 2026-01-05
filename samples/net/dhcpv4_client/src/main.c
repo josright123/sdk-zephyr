@@ -87,16 +87,16 @@ static void option_handler(struct net_dhcpv4_option_callback *cb, size_t length,
 
 static const struct gpio_dt_spec status_leds[] = {
 	GPIO_DT_SPEC_GET(LED0_NODE, gpios),
-	GPIO_DT_SPEC_GET(LED1_NODE, gpios),
-	GPIO_DT_SPEC_GET(LED2_NODE, gpios),
-	GPIO_DT_SPEC_GET(LED3_NODE, gpios),
+	//GPIO_DT_SPEC_GET(LED1_NODE, gpios),
+	//GPIO_DT_SPEC_GET(LED2_NODE, gpios),
+	//GPIO_DT_SPEC_GET(LED3_NODE, gpios),
 };
 
 static const char *const status_led_names[] = {
 	"led0",
-	"led1",
-	"led2",
-	"led3",
+	//"led1",
+	//"led2",
+	//"led3",
 };
 
 static uint8_t leds_ready_mask;
@@ -111,8 +111,8 @@ static int leds_init(void)
 		const struct gpio_dt_spec *led = &status_leds[i];
 		int ret;
 
-		LOG_INF("Init %s: port %s, pin %d, dt_flags=0x%x",
-			status_led_names[i], led->port->name, led->pin, led->dt_flags);
+		LOG_INF("Init %s: port %s, pin %d",
+			status_led_names[i], led->port->name, led->pin); //", dt_flags=0x%x", led->dt_flags
 
 		if (!device_is_ready(led->port)) {
 			LOG_ERR("%s device %s not ready", status_led_names[i], led->port->name);
@@ -135,7 +135,7 @@ static int leds_init(void)
 		return last_err != 0 ? last_err : -ENODEV;
 	}
 
-	LOG_INF("LEDs ready mask=0x%x", leds_ready_mask);
+	//LOG_INF("LEDs ready mask=0x%x", leds_ready_mask);
 	return 0;
 }
 
@@ -183,8 +183,8 @@ int main(void)
 				}
 
 				int pin = gpio_pin_get_dt(&status_leds[i]);
-				LOG_INF("%s set=%d read=%d count=%d",
-					status_led_names[i], led_state, pin, count);
+				//OG_INF("%s set=%d read=%d count=%d",
+				//	status_led_names[i], led_state, pin, count);
 			}
 		}
 		count++;
