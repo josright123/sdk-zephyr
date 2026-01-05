@@ -19,6 +19,7 @@ LOG_MODULE_REGISTER(net_dhcpv4_client_sample, LOG_LEVEL_DBG);
 #include <zephyr/net/net_core.h>
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_mgmt.h>
+#include <zephyr/drivers/gpio.h>
 
 #define DHCP_OPTION_NTP (42)
 
@@ -78,8 +79,72 @@ static void option_handler(struct net_dhcpv4_option_callback *cb, size_t length,
 		net_addr_ntop(AF_INET, cb->data, buf, sizeof(buf)));
 }
 
+/* nRF54L15DK LEDs (gpio-leds) */
+#define LED0_NODE DT_NODELABEL(led0)
+#define LED1_NODE DT_NODELABEL(led1)
+#define LED2_NODE DT_NODELABEL(led2)
+#define LED3_NODE DT_NODELABEL(led3)
+
+static const struct gpio_dt_spec status_leds[] = {
+	GPIO_DT_SPEC_GET(LED0_NODE, gpios),
+	GPIO_DT_SPEC_GET(LED1_NODE, gpios),
+	GPIO_DT_SPEC_GET(LED2_NODE, gpios),
+	GPIO_DT_SPEC_GET(LED3_NODE, gpios),
+};
+
+static const char *const status_led_names[] = {
+	"led0",
+	"led1",
+	"led2",
+	"led3",
+};
+
+static uint8_t leds_ready_mask;
+
+static int leds_init(void)
+{
+	int last_err = 0;
+
+	leds_ready_mask = 0;
+
+	for (size_t i = 0; i < ARRAY_SIZE(status_leds); i++) {
+		const struct gpio_dt_spec *led = &status_leds[i];
+		int ret;
+
+		LOG_INF("Init %s: port %s, pin %d, dt_flags=0x%x",
+			status_led_names[i], led->port->name, led->pin, led->dt_flags);
+
+		if (!device_is_ready(led->port)) {
+			LOG_ERR("%s device %s not ready", status_led_names[i], led->port->name);
+			last_err = -ENODEV;
+			continue;
+		}
+
+		ret = gpio_pin_configure_dt(led, GPIO_OUTPUT);
+		if (ret != 0) {
+			LOG_ERR("%s configure failed: %d", status_led_names[i], ret);
+			last_err = ret;
+			continue;
+		}
+
+		(void)gpio_pin_set_dt(led, 0);
+		leds_ready_mask |= BIT(i);
+	}
+
+	if (leds_ready_mask == 0) {
+		return last_err != 0 ? last_err : -ENODEV;
+	}
+
+	LOG_INF("LEDs ready mask=0x%x", leds_ready_mask);
+	return 0;
+}
+
 int main(void)
 {
+	if (leds_init() != 0) {
+		LOG_ERR("LED initialization failed - continuing without LED");
+	}
+
 	LOG_INF("Run dhcpv4 client.s (main.s=%d)", endc++);
 
 	net_mgmt_init_event_callback(&mgmt_cb, handler, NET_EVENT_IPV4_ADDR_ADD);
@@ -93,5 +158,37 @@ int main(void)
 	net_if_foreach(start_dhcpv4_client, NULL);
 
 	LOG_INF("Run dhcpv4 client.e (main.e=%d)", endc++);
+
+	printk("[TRACE] Entering main LED blink loop\n");
+	int count = 0;
+	int led_state = 0;
+	while (1) {
+		led_state ^= 1;
+		for (size_t i = 0; i < ARRAY_SIZE(status_leds); i++) {
+			if ((leds_ready_mask & BIT(i)) == 0) {
+				continue;
+			}
+
+			const struct gpio_dt_spec *led = &status_leds[i];
+			int ret = gpio_pin_set_dt(led, led_state);
+			if (ret != 0) {
+				LOG_ERR("%s gpio_pin_set_dt failed: %d", status_led_names[i], ret);
+			}
+		}
+
+		if (count % 10 == 0) {
+			for (size_t i = 0; i < ARRAY_SIZE(status_leds); i++) {
+				if ((leds_ready_mask & BIT(i)) == 0) {
+					continue;
+				}
+
+				int pin = gpio_pin_get_dt(&status_leds[i]);
+				LOG_INF("%s set=%d read=%d count=%d",
+					status_led_names[i], led_state, pin, count);
+			}
+		}
+		count++;
+		k_msleep(1000);
+	}
 	return 0;
 }

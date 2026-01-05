@@ -84,3 +84,23 @@
 &uicr {
 	nfct-pins-as-gpios;
 };
+
+/* Ensure GPIO2 is enabled for LED0 */
+&gpio2 {
+	status = "okay";
+};
+
+/* Override LED0 to use correct GPIO2 pin 9 */
+/ {
+	leds {
+		compatible = "gpio-leds";
+		led0: led_0 {
+			gpios = <&gpio2 9 GPIO_ACTIVE_HIGH>;
+			label = "Green LED 0";
+		};
+	};
+	
+	aliases {
+		led0 = &led0;
+	};
+};

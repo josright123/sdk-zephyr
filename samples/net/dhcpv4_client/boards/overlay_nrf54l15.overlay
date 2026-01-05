@@ -25,3 +25,13 @@
 &uicr {
 	nfct-pins-as-gpios;
 };
+
+/* Ensure GPIO2 is enabled for LED0 */
+&gpio2 {
+	status = "okay";
+};
+
+/* Ensure LED0 mapping matches the board dts (GPIO2.9, active high) */
+&led0 {
+	gpios = <&gpio2 9 GPIO_ACTIVE_HIGH>;
+};
