@@ -45,6 +45,16 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 {
 	int i = 0;
 
+	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_ON) {
+		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_ON received\n");
+		return;
+	}
+
+	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_OFF) {
+		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_OFF received\n");
+		return;
+	}
+
 	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
 		return;
 	}
@@ -147,7 +157,10 @@ int main(void)
 
 	LOG_INF("Run dhcpv4 client.s (main.s=%d)", endc++);
 
-	net_mgmt_init_event_callback(&mgmt_cb, handler, NET_EVENT_IPV4_ADDR_ADD);
+	net_mgmt_init_event_callback(&mgmt_cb, handler, 
+					NET_EVENT_IPV4_ADDR_ADD |
+					NET_EVENT_ETHERNET_CARRIER_ON |
+				     NET_EVENT_ETHERNET_CARRIER_OFF);
 	net_mgmt_add_event_callback(&mgmt_cb);
 
 	net_dhcpv4_init_option_callback(&dhcp_cb, option_handler, DHCP_OPTION_NTP, ntp_server,
