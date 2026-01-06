@@ -20,6 +20,8 @@ LOG_MODULE_REGISTER(net_dhcpv4_client_sample, LOG_LEVEL_DBG);
 #include <zephyr/net/net_context.h>
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/net/ethernet.h>
+#include <zephyr/net/ethernet_mgmt.h>
 
 #define DHCP_OPTION_NTP (42)
 
@@ -44,20 +46,45 @@ static void start_dhcpv4_client(struct net_if *iface, void *user_data)
 static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface)
 {
 	int i = 0;
+	const struct device *dev = net_if_get_device(iface);
+	const char *ifname = dev ? dev->name : "?";
+	int ifindex = net_if_get_by_iface(iface);
+	char lladdr_buf[3 * 16];
+	const struct net_linkaddr *lladdr = net_if_get_link_addr(iface);
+	int llpos = 0;
+
+	lladdr_buf[0] = '\0';
+	if (lladdr && lladdr->addr && lladdr->len > 0) {
+		for (size_t j = 0; j < lladdr->len && j < 16; j++) {
+			llpos += snprintk(lladdr_buf + llpos,
+					 sizeof(lladdr_buf) - llpos,
+					 "%s%02x",
+					 (j == 0) ? "" : ":",
+					 lladdr->addr[j]);
+			if (llpos >= sizeof(lladdr_buf)) {
+				break;
+			}
+		}
+	}
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_ON) {
-		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_ON received\n");
+		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_ON received on %s (index=%d) ll=%s\n",
+		       ifname, ifindex, lladdr_buf);
 		return;
 	}
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_OFF) {
-		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_OFF received\n");
+		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_OFF received on %s (index=%d) ll=%s\n",
+		       ifname, ifindex, lladdr_buf);
 		return;
 	}
 
 	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
 		return;
 	}
+
+	printk("[TRACE] NET_EVENT_IPV4_ADDR_ADD received on %s (index=%d) ll=%s\n",
+	       ifname, ifindex, lladdr_buf);
 
 	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 		char buf[NET_IPV4_ADDR_LEN];
