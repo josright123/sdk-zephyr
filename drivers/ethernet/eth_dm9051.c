@@ -734,7 +734,7 @@ static uint8_t dm9051_link_status(const struct device *dev)
 		}
 	} else {
 		if (context->link_up != false) {
-			DM9051_DBG("\n(link_status.x=%d)\n", DM9051_ENDC_INC());
+			//DM9051_DBG("\n(link_status.x=%d)\n", DM9051_ENDC_INC());
 			LOG_INF("%s: Link down", dev->name);
 			context->link_up = false;
 			net_eth_carrier_off(context->iface);

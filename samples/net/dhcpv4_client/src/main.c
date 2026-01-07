@@ -67,30 +67,34 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 			}
 		}
 	}
-
-	printk("[TRACE] hdlr unhandled mgmt_event=0x%08x on %s (index=%d) ll=%s\n",
-	       mgmt_event, ifname, ifindex, lladdr_buf);
+	
+	/* Decode event layer and command */
+	//uint32_t event_layer = mgmt_event & 0xFFFF0000;
+	//uint32_t event_cmd = mgmt_event & 0x0000FFFF;
+	
+	//printk("[TRACE] hdlr event=0x%08x (layer=0x%08x cmd=0x%04x) on %s (index=%d) mac=%s\n",
+	//       mgmt_event, event_layer, event_cmd, ifname, ifindex, lladdr_buf);
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_ON) {
-		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_ON received on %s (index=%d) ll=%s\n",
+		printk("[TRACE] *** CARRIER ON *** on %s (index=%d) ll=%s\n",
 		       ifname, ifindex, lladdr_buf);
 		return;
 	}
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_OFF) {
-		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_OFF received on %s (index=%d) ll=%s\n",
+		printk("[TRACE] *** CARRIER OFF *** on %s (index=%d) ll=%s\n",
 		       ifname, ifindex, lladdr_buf);
 		return;
 	}
 
-	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
-	    mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) {
-		const char *event_name =
-			(mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) ? "NET_EVENT_IPV4_DHCP_BOUND"
-								 : "NET_EVENT_IPV4_ADDR_ADD";
+	/* if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||) */
+	if (mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) {
+		//const char *event_name =
+		//	(mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) ? "NET_EVENT_IPV4_DHCP_BOUND"
+		//						 : "NET_EVENT_IPV4_ADDR_ADD";
 
-		printk("[TRACE] hdlr %s on %s (index=%d) ll=%s\n",
-		       event_name, ifname, ifindex, lladdr_buf);
+		//printk("[TRACE] hdlr %s on %s (index=%d) ll=%s\n",
+		//       event_name, ifname, ifindex, lladdr_buf);
 
 		for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 			char buf[NET_IPV4_ADDR_LEN];
@@ -113,6 +117,10 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 		}
 		return;
 	}
+
+	/* Fallback: unknown/unexpected event */
+	//printk("[TRACE] hdlr UNKNOWN mgmt_event=0x%08x on %s (index=%d) ll=%s\n",
+	//       mgmt_event, ifname, ifindex, lladdr_buf);
 }
 
 static void option_handler(struct net_dhcpv4_option_callback *cb, size_t length,
@@ -194,7 +202,7 @@ int main(void)
 
 	/* Note: net_mgmt event masks are layer-specific. Use one callback per layer. */
 	net_mgmt_init_event_callback(&mgmt_cb_ipv4, handler,
-					NET_EVENT_IPV4_ADDR_ADD |
+					/*NET_EVENT_IPV4_ADDR_ADD | */
 					NET_EVENT_IPV4_DHCP_BOUND);
 	net_mgmt_add_event_callback(&mgmt_cb_ipv4);
 
