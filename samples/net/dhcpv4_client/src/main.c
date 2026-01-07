@@ -27,7 +27,8 @@ LOG_MODULE_REGISTER(net_dhcpv4_client_sample, LOG_LEVEL_DBG);
 
 static uint8_t ntp_server[4];
 
-static struct net_mgmt_event_callback mgmt_cb;
+static struct net_mgmt_event_callback mgmt_cb_ipv4;
+static struct net_mgmt_event_callback mgmt_cb_eth;
 
 static struct net_dhcpv4_option_callback dhcp_cb;
 
@@ -67,6 +68,9 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 		}
 	}
 
+	printk("[TRACE] hdlr unhandled mgmt_event=0x%08x on %s (index=%d) ll=%s\n",
+	       mgmt_event, ifname, ifindex, lladdr_buf);
+
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_ON) {
 		printk("[TRACE] NET_EVENT_ETHERNET_CARRIER_ON received on %s (index=%d) ll=%s\n",
 		       ifname, ifindex, lladdr_buf);
@@ -79,31 +83,35 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 		return;
 	}
 
-	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
-		return;
-	}
+	if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||
+	    mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) {
+		const char *event_name =
+			(mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) ? "NET_EVENT_IPV4_DHCP_BOUND"
+								 : "NET_EVENT_IPV4_ADDR_ADD";
 
-	printk("[TRACE] NET_EVENT_IPV4_ADDR_ADD received on %s (index=%d) ll=%s\n",
-	       ifname, ifindex, lladdr_buf);
+		printk("[TRACE] hdlr %s on %s (index=%d) ll=%s\n",
+		       event_name, ifname, ifindex, lladdr_buf);
 
-	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
-		char buf[NET_IPV4_ADDR_LEN];
+		for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+			char buf[NET_IPV4_ADDR_LEN];
 
-		if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type != NET_ADDR_DHCP) {
-			continue;
+			if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type != NET_ADDR_DHCP) {
+				continue;
+			}
+
+			LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
+				net_addr_ntop(AF_INET,
+						&iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, buf,
+						sizeof(buf)));
+			LOG_INF("    Subnet[%d]: %s", net_if_get_by_iface(iface),
+				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask, buf,
+						sizeof(buf)));
+			LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
+				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf)));
+			//LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
+			//	iface->config.dhcpv4.lease_time);
 		}
-
-		LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET,
-				      &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, buf,
-				      sizeof(buf)));
-		LOG_INF("    Subnet[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask, buf,
-				      sizeof(buf)));
-		LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
-			net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf)));
-		//LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
-		//	iface->config.dhcpv4.lease_time);
+		return;
 	}
 }
 
@@ -184,11 +192,16 @@ int main(void)
 
 	LOG_INF("Run dhcpv4 client.s (main.s=%d)", endc++);
 
-	net_mgmt_init_event_callback(&mgmt_cb, handler, 
+	/* Note: net_mgmt event masks are layer-specific. Use one callback per layer. */
+	net_mgmt_init_event_callback(&mgmt_cb_ipv4, handler,
 					NET_EVENT_IPV4_ADDR_ADD |
+					NET_EVENT_IPV4_DHCP_BOUND);
+	net_mgmt_add_event_callback(&mgmt_cb_ipv4);
+
+	net_mgmt_init_event_callback(&mgmt_cb_eth, handler,
 					NET_EVENT_ETHERNET_CARRIER_ON |
-				     NET_EVENT_ETHERNET_CARRIER_OFF);
-	net_mgmt_add_event_callback(&mgmt_cb);
+					NET_EVENT_ETHERNET_CARRIER_OFF);
+	net_mgmt_add_event_callback(&mgmt_cb_eth);
 
 	net_dhcpv4_init_option_callback(&dhcp_cb, option_handler, DHCP_OPTION_NTP, ntp_server,
 					sizeof(ntp_server));
