@@ -8,7 +8,7 @@
  */
 
 #include <zephyr/logging/log.h>
-LOG_MODULE_REGISTER(net_dhcpv4_client_sample, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(dhcpv4_client_sample, LOG_LEVEL_DBG);
 
 #include <zephyr/kernel.h>
 #include <zephyr/linker/sections.h>
@@ -57,44 +57,41 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 	lladdr_buf[0] = '\0';
 	if (lladdr && lladdr->addr && lladdr->len > 0) {
 		for (size_t j = 0; j < lladdr->len && j < 16; j++) {
-			llpos += snprintk(lladdr_buf + llpos,
-					 sizeof(lladdr_buf) - llpos,
-					 "%s%02x",
-					 (j == 0) ? "" : ":",
-					 lladdr->addr[j]);
+			llpos += snprintk(lladdr_buf + llpos, sizeof(lladdr_buf) - llpos, "%s%02x",
+					  (j == 0) ? "" : ":", lladdr->addr[j]);
 			if (llpos >= sizeof(lladdr_buf)) {
 				break;
 			}
 		}
 	}
-	
+
 	/* Decode event layer and command */
-	//uint32_t event_layer = mgmt_event & 0xFFFF0000;
-	//uint32_t event_cmd = mgmt_event & 0x0000FFFF;
-	
-	//printk("[TRACE] hdlr event=0x%08x (layer=0x%08x cmd=0x%04x) on %s (index=%d) mac=%s\n",
-	//       mgmt_event, event_layer, event_cmd, ifname, ifindex, lladdr_buf);
+	// uint32_t event_layer = mgmt_event & 0xFFFF0000;
+	// uint32_t event_cmd = mgmt_event & 0x0000FFFF;
+
+	// printk("[TRACE] hdlr event=0x%08x (layer=0x%08x cmd=0x%04x) on %s (index=%d) mac=%s\n",
+	//        mgmt_event, event_layer, event_cmd, ifname, ifindex, lladdr_buf);
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_ON) {
-		printk("[TRACE] *** CARRIER ON *** on %s (index=%d) ll=%s\n",
-		       ifname, ifindex, lladdr_buf);
+		printk("[TRACE] *** CARRIER ON *** on %s (index=%d) ll=%s\n", ifname, ifindex,
+		       lladdr_buf);
 		return;
 	}
 
 	if (mgmt_event == NET_EVENT_ETHERNET_CARRIER_OFF) {
-		printk("[TRACE] *** CARRIER OFF *** on %s (index=%d) ll=%s\n",
-		       ifname, ifindex, lladdr_buf);
+		printk("[TRACE] *** CARRIER OFF *** on %s (index=%d) ll=%s\n", ifname, ifindex,
+		       lladdr_buf);
 		return;
 	}
 
 	/* if (mgmt_event == NET_EVENT_IPV4_ADDR_ADD ||) */
 	if (mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) {
-		//const char *event_name =
+		// const char *event_name =
 		//	(mgmt_event == NET_EVENT_IPV4_DHCP_BOUND) ? "NET_EVENT_IPV4_DHCP_BOUND"
 		//						 : "NET_EVENT_IPV4_ADDR_ADD";
 
-		//printk("[TRACE] hdlr %s on %s (index=%d) ll=%s\n",
-		//       event_name, ifname, ifindex, lladdr_buf);
+		// printk("[TRACE] hdlr %s on %s (index=%d) ll=%s\n",
+		//        event_name, ifname, ifindex, lladdr_buf);
 
 		for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
 			char buf[NET_IPV4_ADDR_LEN];
@@ -104,23 +101,25 @@ static void handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, str
 			}
 
 			LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
-				net_addr_ntop(AF_INET,
-						&iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr, buf,
-						sizeof(buf)));
+				net_addr_ntop(
+					AF_INET,
+					&iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+					buf, sizeof(buf)));
 			LOG_INF("    Subnet[%d]: %s", net_if_get_by_iface(iface),
-				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask, buf,
-						sizeof(buf)));
+				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->unicast[i].netmask,
+					      buf, sizeof(buf)));
 			LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
-				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf, sizeof(buf)));
-			//LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
+				net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, buf,
+					      sizeof(buf)));
+			// LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
 			//	iface->config.dhcpv4.lease_time);
 		}
 		return;
 	}
 
 	/* Fallback: unknown/unexpected event */
-	//printk("[TRACE] hdlr UNKNOWN mgmt_event=0x%08x on %s (index=%d) ll=%s\n",
-	//       mgmt_event, ifname, ifindex, lladdr_buf);
+	// printk("[TRACE] hdlr UNKNOWN mgmt_event=0x%08x on %s (index=%d) ll=%s\n",
+	//        mgmt_event, ifname, ifindex, lladdr_buf);
 }
 
 static void option_handler(struct net_dhcpv4_option_callback *cb, size_t length,
@@ -140,9 +139,9 @@ static void option_handler(struct net_dhcpv4_option_callback *cb, size_t length,
 
 static const struct gpio_dt_spec status_leds[] = {
 	GPIO_DT_SPEC_GET(LED0_NODE, gpios),
-	//GPIO_DT_SPEC_GET(LED1_NODE, gpios),
-	//GPIO_DT_SPEC_GET(LED2_NODE, gpios),
-	//GPIO_DT_SPEC_GET(LED3_NODE, gpios),
+	// GPIO_DT_SPEC_GET(LED1_NODE, gpios),
+	// GPIO_DT_SPEC_GET(LED2_NODE, gpios),
+	// GPIO_DT_SPEC_GET(LED3_NODE, gpios),
 };
 
 static const char *const status_led_names[] = {
@@ -164,8 +163,8 @@ static int leds_init(void)
 		const struct gpio_dt_spec *led = &status_leds[i];
 		int ret;
 
-		LOG_INF("Init %s: port %s, pin %d",
-			status_led_names[i], led->port->name, led->pin); //", dt_flags=0x%x", led->dt_flags
+		LOG_INF("Init %s: port %s, pin %d", status_led_names[i], led->port->name,
+			led->pin); //", dt_flags=0x%x", led->dt_flags
 
 		if (!device_is_ready(led->port)) {
 			LOG_ERR("%s device %s not ready", status_led_names[i], led->port->name);
@@ -188,7 +187,7 @@ static int leds_init(void)
 		return last_err != 0 ? last_err : -ENODEV;
 	}
 
-	//LOG_INF("LEDs ready mask=0x%x", leds_ready_mask);
+	// LOG_INF("LEDs ready mask=0x%x", leds_ready_mask);
 	return 0;
 }
 
@@ -202,13 +201,13 @@ int main(void)
 
 	/* Note: net_mgmt event masks are layer-specific. Use one callback per layer. */
 	net_mgmt_init_event_callback(&mgmt_cb_ipv4, handler,
-					/*NET_EVENT_IPV4_ADDR_ADD | */
-					NET_EVENT_IPV4_DHCP_BOUND);
+				     /*NET_EVENT_IPV4_ADDR_ADD | */
+				     NET_EVENT_IPV4_DHCP_BOUND);
 	net_mgmt_add_event_callback(&mgmt_cb_ipv4);
 
 	net_mgmt_init_event_callback(&mgmt_cb_eth, handler,
-					NET_EVENT_ETHERNET_CARRIER_ON |
-					NET_EVENT_ETHERNET_CARRIER_OFF);
+				     NET_EVENT_ETHERNET_CARRIER_ON |
+					     NET_EVENT_ETHERNET_CARRIER_OFF);
 	net_mgmt_add_event_callback(&mgmt_cb_eth);
 
 	net_dhcpv4_init_option_callback(&dhcp_cb, option_handler, DHCP_OPTION_NTP, ntp_server,
@@ -244,7 +243,7 @@ int main(void)
 				}
 
 				int pin = gpio_pin_get_dt(&status_leds[i]);
-				//OG_INF("%s set=%d read=%d count=%d",
+				// OG_INF("%s set=%d read=%d count=%d",
 				//	status_led_names[i], led_state, pin, count);
 			}
 		}
