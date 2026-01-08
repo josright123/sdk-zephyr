@@ -28,6 +28,33 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "eth_dm9051_priv.h"
 
+#define ETH_DM9051_RX_THREAD_STACK_SIZE 1536 //800 (for smaller system resource device)
+
+struct dm9051_config {
+	struct spi_dt_spec spi;
+	struct gpio_dt_spec interrupt;
+	struct gpio_dt_spec reset;
+
+	int32_t timeout_pkt;
+	int32_t timeout;
+};
+
+struct dm9051_runtime {
+	struct net_if *iface;
+	struct k_sem tx_rx_sem;
+	struct k_sem int_sem;
+
+	K_KERNEL_STACK_MEMBER(thread_stack, ETH_DM9051_RX_THREAD_STACK_SIZE);
+	struct k_thread thread;
+
+	struct gpio_callback gpio_cb;
+
+	uint8_t mac_address[6];
+
+	bool chip_ok: 1;
+	bool link_up: 1;
+};
+
 static uint8_t dm9051_read_reg(const struct device *dev, uint8_t reg);
 static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len);
 
@@ -260,6 +287,38 @@ static void dm9051_read_mem(const struct device *dev, uint8_t *buf, uint16_t len
 	if (ret < 0) {
 		LOG_ERR("SPI read memory failed: %d", ret);
 	}
+
+	#if 0
+	/* On some SPI bitbang implementations, long transfers may keep interrupts
+	 * disabled for too long, impacting UART/shell responsiveness. Read in small
+	 * chunks to bound that effect.
+	 */
+	const uint16_t max_chunk = 64;
+	uint16_t remaining = len;
+	uint16_t offset = 0;
+
+	while (remaining > 0) {
+		uint16_t chunk = MIN(remaining, max_chunk);
+
+		const struct spi_buf tx_buf = {.buf = &cmd, .len = 1};
+		const struct spi_buf_set tx = {.buffers = &tx_buf, .count = 1};
+
+		const struct spi_buf rx_buf[2] = {
+			{.buf = NULL, .len = 1},              /* Discard command echo */
+			{.buf = buf + offset, .len = chunk},  /* Actual data */
+		};
+		const struct spi_buf_set rx = {.buffers = rx_buf, .count = 2};
+
+		int ret = spi_transceive_dt(&config->spi, &tx, &rx);
+		if (ret < 0) {
+			LOG_ERR("SPI read memory failed: %d", ret);
+			return;
+		}
+
+		offset += chunk;
+		remaining -= chunk;
+	}
+	#endif
 }
 
 /**
@@ -283,6 +342,32 @@ static void dm9051_write_mem(const struct device *dev, const uint8_t *buf, uint1
 	if (ret < 0) {
 		LOG_ERR("SPI write memory failed: %d", ret);
 	}
+	
+	#if 0
+	/* See dm9051_read_mem(): chunk writes to avoid very long bitbang transfers. */
+	const uint16_t max_chunk = 64;
+	uint16_t remaining = len;
+	uint16_t offset = 0;
+
+	while (remaining > 0) {
+		uint16_t chunk = MIN(remaining, max_chunk);
+
+		const struct spi_buf tx_buf[2] = {
+			{.buf = &cmd, .len = 1},                         /* Command byte */
+			{.buf = (void *)(buf + offset), .len = chunk},   /* Data bytes */
+		};
+		const struct spi_buf_set tx = {.buffers = tx_buf, .count = 2};
+
+		int ret = spi_write_dt(&config->spi, &tx);
+		if (ret < 0) {
+			LOG_ERR("SPI write memory failed: %d", ret);
+			return;
+		}
+
+		offset += chunk;
+		remaining -= chunk;
+	}
+	#endif
 }
 
 /*******************************************************************************
@@ -599,7 +684,9 @@ static int dm9051_rx_packet(const struct device *dev)
 	uint8_t rx_status;
 	struct net_pkt *pkt;
 
+	k_sem_take(&context->tx_rx_sem, K_FOREVER);
 	if (!dm9051_rx_ready(dev)) {
+		k_sem_give(&context->tx_rx_sem);
 		return 1; // 0;
 	}
 
@@ -614,12 +701,14 @@ static int dm9051_rx_packet(const struct device *dev)
 	if (rx_status & RSR_ERR_BITS) {
 		LOG_ERR("%s: RX error status=0x%02x", dev->name, rx_status);
 		env_err_rst(dev);
+		k_sem_give(&context->tx_rx_sem);
 		return -EIO;
 	}
 
 	if (rx_len > NET_ETH_MTU + sizeof(struct net_eth_hdr) + 4 || rx_len < 4) {
 		LOG_ERR("%s: RX length error len=%u", dev->name, rx_len);
 		env_err_rst(dev);
+		k_sem_give(&context->tx_rx_sem);
 		return -EINVAL;
 	}
 
@@ -636,7 +725,7 @@ static int dm9051_rx_packet(const struct device *dev)
 	 * If that fails, try with K_NO_WAIT in case buffers become available
 	 */
 	pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
-					   K_MSEC(config->timeout_pkt)); //K_MSEC(config->timeout)
+					   K_MSEC(config->timeout_pkt));
 	if (!pkt) {
 		/* Retry once without blocking - buffers may have been freed by RX thread */
 		pkt = net_pkt_rx_alloc_with_buffer(context->iface, frame_len, AF_UNSPEC, 0,
@@ -649,6 +738,7 @@ static int dm9051_rx_packet(const struct device *dev)
 			/* Discard the packet from DM9051's memory to prevent blocking */
 			dm9051_drop_packet(dev, rx_len);
 			eth_stats_update_errors_rx(context->iface);
+			k_sem_give(&context->tx_rx_sem);
 			return -ENOMEM;
 		}
 	}
@@ -662,6 +752,7 @@ static int dm9051_rx_packet(const struct device *dev)
 		/* Discard the packet from DM9051's memory to prevent blocking */
 		dm9051_drop_packet(dev, rx_len);
 		eth_stats_update_errors_rx(context->iface);
+		k_sem_give(&context->tx_rx_sem);
 		return -ENOMEM;
 	}
 
@@ -674,6 +765,7 @@ static int dm9051_rx_packet(const struct device *dev)
 		static uint16_t times = 0;
 		LOG_ERR("dm9 pkt_read_from error times : %u", ++times);
 		env_err_rst(dev);
+		k_sem_give(&context->tx_rx_sem);
 		return -EIO;
 	}
 
@@ -689,10 +781,11 @@ static int dm9051_rx_packet(const struct device *dev)
 	}
 
 	dm9051_write_reg(dev, DM9051_ISR, 0x80);
+	k_sem_give(&context->tx_rx_sem);
 
 	net_pkt_set_iface(pkt, context->iface);
 
-	/* Feed to network stack */
+	/* Feed to network stack - OUTSIDE the SPI semaphore to avoid deadlocks */
 	if (net_recv_data(context->iface, pkt) < 0) {
 		net_pkt_unref(pkt);
 		return -EIO;
@@ -708,38 +801,46 @@ static int dm9051_rx_packet(const struct device *dev)
 
 static uint8_t dm9051_link_status(const struct device *dev)
 {
-	// uint16_t bmsr;
 	uint8_t nsr;
 	struct dm9051_runtime *context = dev->data;
+	bool carrier_on = false;
+	bool carrier_off = false;
 
-	// bmsr = dm9051_phy_read(dev, PHY_STATUS_REG);
+	k_sem_take(&context->tx_rx_sem, K_FOREVER);
 	nsr = dm9051_read_reg(dev, DM9051_NSR);
-	// if (bmsr == 0xffff) {
-	//	LOG_ERR("%s: PHY read failed", dev->name);
-	//	return;
-	// }
 	if (nsr == 0xff) {
 		LOG_ERR("%s: NSR read failed", dev->name);
+		k_sem_give(&context->tx_rx_sem);
 		return 0xff;
 	}
 
-	// if (bmsr & 0x01) --- PHY_STATUS_LINK = 0x0004
+	/* Link change notifications require a valid interface. */
+	if (context->iface == NULL) {
+		k_sem_give(&context->tx_rx_sem);
+		return nsr;
+	}
+
 	if (nsr & NSR_LINKST) {
 		if (context->link_up != true) {
-			printk("\n");
-			//DM9051_DBG("\n(link_status.o=%d)\n", DM9051_ENDC_INC());
-			LOG_INF("_dm9051_link_status: +%s: Link up", dev->name);
 			context->link_up = true;
-			net_eth_carrier_on(context->iface);
+			carrier_on = true;
 		}
 	} else {
 		if (context->link_up != false) {
-			//DM9051_DBG("\n(link_status.x=%d)\n", DM9051_ENDC_INC());
-			LOG_INF("%s: Link down", dev->name);
 			context->link_up = false;
-			net_eth_carrier_off(context->iface);
+			carrier_off = true;
 		}
 	}
+	k_sem_give(&context->tx_rx_sem);
+
+	if (carrier_on) {
+		printk("_dm9051_link_status: +%s: Link up\n", dev->name);
+		net_eth_carrier_on(context->iface);
+	} else if (carrier_off) {
+		printk("%s: Link down\n", dev->name);
+		net_eth_carrier_off(context->iface);
+	}
+
 	return nsr;
 }
 
@@ -772,11 +873,19 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 
 	const struct device *dev = arg1;
 	struct dm9051_runtime *context = dev->data;
-	const struct dm9051_config *config = dev->config;
+	/*const struct dm9051_config *config = dev->config;*/
 	uint32_t int_count = 0;
 	uint8_t flg_print_rx_status = 0;
 
+	
+	/* Guard time to let system stabilize and finish booting */
+	k_msleep(200);
 	while (1) {
+		/* Limit how many frames we process per wake-up so we don't
+		 * starve other threads (e.g. shell/console) on busy networks.
+		 */
+		const int rx_burst_max = 8;
+		int rx_burst = 0;
 		int loop_count = 0;
 		if (cint(dev)) {
 			/* Interrupt mode: wait for GPIO interrupt signal */
@@ -787,38 +896,50 @@ static void dm9051_rx_thread(void *arg1, void *arg2, void *arg3)
 					DM9051_DBG("--------- %5d DM9051 INT.s sem_count=%u --------\n", 
 					       int_count, k_sem_count_get(&context->int_sem)+1);
 				}
+				
+				k_sem_take(&context->tx_rx_sem, K_FOREVER);
+				dm9051_interrupt_disble_irq(dev);
+				k_sem_give(&context->tx_rx_sem);
 			} else {
 				/* Interrupt mode, Semaphore timeout - when no interrupt received
 				 * could support update link status */
 				dm9051_link_status(dev);
 				continue;
 			}
-			dm9051_interrupt_disble_irq(dev);
 		} else {
 			/* Polling mode: periodic check every 10ms */
-			k_sem_take(&context->int_sem, K_MSEC(config->timeout)); //polling
-			/* support update link status */
-			dm9051_link_status(dev);
+			/*k_sem_take(&context->int_sem, K_MSEC(config->timeout));*/ //polling
+			k_msleep(10);
 		}
-
-		/* Take semaphore to protect SPI access */
-		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 
 		/* Process all available packets */
 		while (dm9051_rx_packet(dev) == 0) {
 			loop_count++;
+			if (++rx_burst >= rx_burst_max) {
+				break;
+			}
 		}
 
-		/* Release semaphore */
-		k_sem_give(&context->tx_rx_sem);
+		/* support update link status */
+		dm9051_link_status(dev);
+
+		/* If we hit the burst limit, or processed packets, yield so other threads can run. */
+		if (rx_burst >= rx_burst_max || loop_count > 0) {
+			k_yield();
+			k_msleep(1);
+		}
+
 		if (flg_print_rx_status) {
 			flg_print_rx_status = 0;
 			DM9051_DBG("---------%5d DM9051 INT.e sem_count=%u nRX=%d--------\n", 
 			       int_count, k_sem_count_get(&context->int_sem), loop_count);
 		}
+		
 		int_count++;
 		if (cint(dev)) {
+			k_sem_take(&context->tx_rx_sem, K_FOREVER);
 			dm9051_interrupt_reset_for_cb_sem(dev);
+			k_sem_give(&context->tx_rx_sem);
 		}
 	}
 }
@@ -856,7 +977,7 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 		memcpy(context->mac_address, config->mac_address.addr,
 		       sizeof(context->mac_address));
 
-#if 1
+		k_sem_take(&context->tx_rx_sem, K_FOREVER);
 		/* Set MAC address */
 		dm9051_set_mac_address(dev, context->mac_address);
 		LOG_INF("_dm9051_set_config: MAC, %02x:%02x:%02x:%02x:%02x:%02x",
@@ -865,7 +986,7 @@ static int eth_dm9051_set_config(const struct device *dev, enum ethernet_config_
 
 		/* Configure receive */
 		dm9051_set_receive(dev);
-#endif
+		k_sem_give(&context->tx_rx_sem);
 
 		if (context->iface != NULL) {
 			net_if_set_link_addr(context->iface, context->mac_address,
@@ -998,8 +1119,8 @@ static void eth_dm9051_iface_init(struct net_if *iface)
 
 	/* Create RX thread for packet reception */
 	k_thread_create(&context->thread, context->thread_stack,
-			CONFIG_ETH_DM9051_RX_THREAD_STACK_SIZE, dm9051_rx_thread, (void *)dev, NULL,
-			NULL, K_PRIO_COOP(2), /* High priority for network RX */
+			K_KERNEL_STACK_SIZEOF(context->thread_stack), dm9051_rx_thread, (void *)dev, NULL,
+			NULL, K_PRIO_PREEMPT(CONFIG_ETH_DM9051_RX_THREAD_PRIO), /* Higher priority for network RX */
 			0, K_NO_WAIT);
 	k_thread_name_set(&context->thread, "dm9051_rx");
 
@@ -1148,19 +1269,23 @@ static uint16_t dm9051_detect_id(const struct device *dev)
 		}
 	}
 
-	/* Verify chip ID before reset */
+	/* Verify chip ID before reset. Never block boot forever: retry for a
+	 * bounded amount of time and return failure if the device is not responding.
+	 */
 	if (chip_id != 0x9051 && chip_id != 0x9058) {
-		LOG_ERR("Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058), Re-try", chip_id);
+		LOG_ERR("Invalid chip ID: 0x%04x (expected 0x9051 or 0x9058)", chip_id);
 
-		while (1) {
+		for (int attempt = 0; attempt < CONFIG_ETH_DM9051_ID_VERIFY_RETRY_COUNT; attempt++) {
 			chip_id = dm9051_get_chipid(dev);
 			if (chip_id == 0x9051 || chip_id == 0x9058) {
-				LOG_INF("INFO: DM9051 chip ID verified succeed: 0x%04x", chip_id);
-				break;
+				LOG_INF("DM9051 chip ID verified: 0x%04x", chip_id);
+				return chip_id;
 			}
-			LOG_INF(" INFO: DM9051 chip ID verified failed: 0x%04x", chip_id);
-			k_msleep(1000);
+			k_msleep(CONFIG_ETH_DM9051_ID_VERIFY_RETRY_DELAY_MS);
 		}
+
+		LOG_ERR("DM9051 chip ID verify failed after %d retries",
+			CONFIG_ETH_DM9051_ID_VERIFY_RETRY_COUNT);
 		return 0;
 	}
 
@@ -1255,8 +1380,9 @@ static int eth_dm9051_init(const struct device *dev)
 #define DM9051_DEFINE(inst)                                                                        \
 	static struct dm9051_runtime dm9051_runtime_##inst = {                                     \
 		.mac_address = DT_INST_PROP(inst, local_mac_address),                              \
-		.tx_rx_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).tx_rx_sem, 1, UINT_MAX),    \
-		.int_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).int_sem, 0, UINT_MAX),        \
+		/* Binary semaphores: cap count to 1 to avoid backlog/starvation. */                \
+		.tx_rx_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).tx_rx_sem, 1, 1),           \
+		.int_sem = Z_SEM_INITIALIZER((dm9051_runtime_##inst).int_sem, 0, 1),               \
 		.link_up = false,                                                                  \
 	};                                                                                         \
                                                                                                    \
@@ -1264,7 +1390,7 @@ static int eth_dm9051_init(const struct device *dev)
 		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
 		.interrupt = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, {0}),                       \
 		.reset = GPIO_DT_SPEC_INST_GET_OR(inst, reset_gpios, {0}),                         \
-		.timeout_pkt = 500,                                                                  \
+		.timeout_pkt = 500,                                                                \
 		.timeout = 10,                                                                     \
 	};                                                                                         \
                                                                                                    \
