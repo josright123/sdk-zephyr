@@ -222,33 +222,6 @@ typedef uint8_t mac_t[MAC_ADDR_LENGTH];
 #define SMCR_DEFAULT  (0x0)
 #define PBCR_MAXDRIVE (0x44)
 
-struct dm9051_config {
-	struct spi_dt_spec spi;
-	struct gpio_dt_spec interrupt;
-	struct gpio_dt_spec reset;
-
-	int32_t timeout_pkt;
-	int32_t timeout;
-};
-
-struct dm9051_runtime {
-	struct net_if *iface;
-	struct k_sem tx_rx_sem;
-	struct k_sem int_sem;
-
-	K_KERNEL_STACK_MEMBER(thread_stack, CONFIG_ETH_DM9051_RX_THREAD_STACK_SIZE);
-	struct k_thread thread;
-
-	struct gpio_callback gpio_cb;
-
-	uint8_t mac_address[6];
-
-	bool link_up: 1;
-	//bool iface_initialized: 1;
-	//bool iface_carrier_on_init: 1;
-	//bool device_ready: 1;
-};
-
 #define PHY_STATUS_REG (0x01) /*!< basic mode status register */
 #define DM9051_MRCMD   (0x72)
 #define DM9051_MWCMD   (0x78)
