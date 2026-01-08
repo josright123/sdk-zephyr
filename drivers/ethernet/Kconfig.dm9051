@@ -21,14 +21,6 @@ config ETH_DM9051_DEBUG_PRINTS
 	  Enable verbose printk-based debug output in the DM9051 driver.
 	  Disable to reduce console noise
 
-config ETH_DM9051_RX_THREAD_STACK_SIZE
-	int "Stack size for internal incoming packet handler"
-	depends on ETH_DM9051
-	default 800
-	help
-	  Size of the stack used for internal thread which is ran for
-	  incoming packet processing.
-
 config ETH_DM9051_RX_THREAD_PRIO
 	int "Priority for internal incoming packet handler"
 	depends on ETH_DM9051
@@ -48,6 +40,22 @@ config ETH_DM9051_MULTICAST_FILTER
 	default n
 	help
 	  Enable multicast pass all.
+
+config ETH_DM9051_ID_VERIFY_RETRY_COUNT
+	int "Chip ID verify retry count"
+	default 30
+	help
+	  Number of times the driver will retry reading and verifying
+	  the DM9051 chip ID during initialization. If verification still
+	  fails after all retries, the driver init returns an error instead
+	  of blocking boot.
+
+config ETH_DM9051_ID_VERIFY_RETRY_DELAY_MS
+	int "Delay (ms) between chip ID verify retries"
+	default 100
+	help
+	  Delay in milliseconds between consecutive DM9051 chip ID verify
+	  retries during initialization.
 
 #config ETH_DM9051_CLKRDY_INIT_WAIT_MS
 #	int "Time to wait for the CLKRDY bit on driver init"
