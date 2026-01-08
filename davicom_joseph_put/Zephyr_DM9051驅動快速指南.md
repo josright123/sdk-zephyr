@@ -5,18 +5,25 @@
 *** Using Zephyr OS v4.1.99-5f4c874a5ee8 ***
 # 一 ，核心檔案清單
 
-| 類型                | 檔案路徑                                                                                                                                                    | 說明                           |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| **驅動**            | `zephyr/drivers/ethernet/eth_dm9051.c`                                                                                                                  | 驅動主程式                        |
-| **驅動**            | `zephyr/drivers/ethernet/eth_dm9051_priv.h`                                                                                                             | 暫存器定義與內部結構(with MBNDRY_WORD) |
-| **驅動CMake**       | `zephyr/drivers/ethernet/CMakeLists.txt`                                                                                                                | 建置腳本                         |
-| **驅動Kconfig**     | `zephyr/drivers/ethernet/Kconfig`                                                                                                                       | Kconfig 文檔                   |
-|                   | `zephyr/drivers/ethernet/Kconfig.dm9051`                                                                                                                | 配置選項                         |
-| **驅動Device Tree** | `zephyr/dts/bindings/ethernet/davicom,dm9051.yaml`                                                                                                      | 硬體綁定定義                       |
-| **應用範例kconfig**   | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/overlay_dm9051.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 應用配置範例<br>軟件功能選擇             |
-| **應用範例overlay**   | `samples/net/dhcpv4_client/overlay_dm9051.overlay`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                       | 應用Device Tree<br>硬件佈局選擇      |
+| 類型                | 檔案路徑                                               | 說明                           |
+| ----------------- | -------------------------------------------------- | ---------------------------- |
+| **驅動**            | `zephyr/drivers/ethernet/eth_dm9051.c`             | 驅動主程式                        |
+| **驅動**            | `zephyr/drivers/ethernet/eth_dm9051_priv.h`        | 暫存器定義與內部結構(with MBNDRY_WORD) |
+| **驅動CMake**       | `zephyr/drivers/ethernet/CMakeLists.txt`           | 建置腳本                         |
+| **驅動Kconfig**     | `zephyr/drivers/ethernet/Kconfig`                  | Kconfig 文檔                   |
+|                   | `zephyr/drivers/ethernet/Kconfig.dm9051`           | 配置選項                         |
+| **驅動Device Tree** | `zephyr/dts/bindings/ethernet/davicom,dm9051.yaml` | 硬體綁定定義                       |
 
-# 二 ，移植Zephyr dm9051驅動
+# 二 ，應用層檔案清單
+
+| 類型                | 檔案路徑                                                                                                 | 說明                           |
+| ----------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **應用範例kconfig**   | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 應用配置<br>軟件功能選擇               |
+| **驅動選項kconfig**   | `samples/net/dhcpv4_client/overlay_dm9051.conf`                                                      | 驅動核心功能選擇                     |
+| **應用範例overlay**   | `samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                          | 應用配置<br>硬件佈局選擇               |
+| **驅動介面overlay**   | `samples/net/dhcpv4_client/overlay_dm9051.overlay`                                                   | 驅動硬件SPI介面及腳位選擇               |
+
+# 三 ，移植Zephyr dm9051驅動
 ## **在 CMakeLists.txt 引用 dm9051驅動源碼編譯**
 ```cmake
 zephyr_library_sources_ifdef(CONFIG_ETH_DM9051		eth_dm9051.c)
@@ -48,7 +55,7 @@ CONFIG_ETH_DM9051_RX_THREAD_PRIO=2              # RX 執行緒優先權（預設
 "dts/bindings/ethernet/davicom,dm9051.yaml"
 ```
 
-# 三 ，系統應用加載dm9051驅動
+# 四 ，系統應用加載dm9051驅動
 ## Device Tree 硬件屬性
 
 ### 裝置版本環境：
@@ -296,7 +303,7 @@ properties:
 };
 ```
 
-# 四 ，啟用步驟軟件區塊
+# 五 ，啟用步驟軟件區塊
 
 案例資訊:  samples/net/dhcpv4_client/
 
@@ -318,7 +325,7 @@ west build -b nrf54l15dk/nrf54l15/cpuapp
 west flash
 ```
 
-# 五 ，重要提醒
+# 六 ，重要提醒
 
 - **SPI 頻率**：建議從 8MHz 開始測試，穩定後可提升至 16~40MHz
 - **中斷 vs Polling**：添加 `int-gpios`為中斷，移除即自動切換為 Polling 模式
