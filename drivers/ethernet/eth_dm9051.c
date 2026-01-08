@@ -28,6 +28,18 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME);
 
 #include "eth_dm9051_priv.h"
 
+/* SPI_DT_SPEC_INST_GET argument count selection:
+ * Set to 1 for Zephyr versions requiring 3 args (e.g., 4.1.99: inst, operation, delay)
+ * Set to 0 for Zephyr versions requiring 2 args (e.g., v4.3.0: inst, operation)
+ */
+#define DM9051_SPI_HAS_3_ARGS 1
+
+#if DM9051_SPI_HAS_3_ARGS
+#define DM9051_SPI_DT_GET(inst) SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0)
+#else
+#define DM9051_SPI_DT_GET(inst) SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8))
+#endif
+
 #define ETH_DM9051_RX_THREAD_STACK_SIZE 1536 //800 (for smaller system resource device)
 
 struct dm9051_config {
@@ -1387,7 +1399,7 @@ static int eth_dm9051_init(const struct device *dev)
 	};                                                                                         \
                                                                                                    \
 	static const struct dm9051_config dm9051_config_##inst = {                                 \
-		.spi = SPI_DT_SPEC_INST_GET(inst, SPI_WORD_SET(8), 0),                             \
+		.spi = DM9051_SPI_DT_GET(inst),                                                    \
 		.interrupt = GPIO_DT_SPEC_INST_GET_OR(inst, int_gpios, {0}),                       \
 		.reset = GPIO_DT_SPEC_INST_GET_OR(inst, reset_gpios, {0}),                         \
 		.timeout_pkt = 500,                                                                \
