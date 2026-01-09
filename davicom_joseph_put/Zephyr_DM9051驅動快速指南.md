@@ -18,27 +18,27 @@
 
 ### nRF54L15目標板
 
-| 類型              | 檔案路徑                                                                                                 | 說明             |
-| --------------- | ---------------------------------------------------------------------------------------------------- | -------------- |
-| **應用範例kconfig** | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 應用配置<br>軟件功能選擇 |
-| **驅動選項kconfig** | `samples/net/dhcpv4_client/boards/overlay_dm9051.conf`                                               | 驅動核心功能選擇       |
-| **應用範例overlay** | `samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                          | 應用配置<br>硬件佈局選擇 |
-| **驅動介面overlay** | `samples/net/dhcpv4_client/boards/overlay_dm9051.overlay`                                            | 驅動硬件SPI介面及腳位選擇 |
+| 類型              | 檔案路徑                                                                                                 | 說明                     |
+| --------------- | ---------------------------------------------------------------------------------------------------- | ---------------------- |
+| **應用範例kconfig** | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 軟件屬性<br>應用配置<br>功能選擇   |
+| **驅動選項kconfig** | `samples/net/dhcpv4_client/boards/overlay_dm9051.conf`                                               | 軟件屬性<br>驅動核心功能選擇       |
+| **應用範例overlay** | `samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                          | 硬件屬性<br>應用配置<br>硬件佈局選擇 |
+| **驅動介面overlay** | `samples/net/dhcpv4_client/boards/overlay_dm9051.overlay`                                            | 硬件屬性<br>SPI介面及腳位選擇     |
 
 ### Rpi4 Model B目標板
 
-| 類型                | 檔案路徑                                                 | 說明                     |
-| ----------------- | -------------------------------------------------------- | ------------------------ |
-| **應用範例kconfig** | `samples/net/dhcpv4_client/prj.conf`                     | 應用配置<br>軟件功能選擇 |
-| **驅動介面overlay** | `samples/net/dhcpv4_client/boards/rpi_4b_dm9051.overlay` | 驅動硬件SPI介面及腳位選擇 |
+| 類型              | 檔案路徑                                                     | 說明                     |
+| --------------- | -------------------------------------------------------- | ---------------------- |
+| **應用範例kconfig** | `samples/net/dhcpv4_client/prj.conf`                     | 軟件屬性<br>應用配置<br>軟件功能選擇 |
+| **驅動介面overlay** | `samples/net/dhcpv4_client/boards/rpi_4b_dm9051.overlay` | 硬件屬性<br>驅動SPI介面及腳位選擇   |
 
 # 三 ，移植Zephyr dm9051驅動
-## **在 CMakeLists.txt 引用 dm9051驅動源碼編譯**
+## **在 CMakeLists.txt 源碼引用編譯 dm9051驅動**
 ```cmake
 zephyr_library_sources_ifdef(CONFIG_ETH_DM9051		eth_dm9051.c)
 ```
 
-## **在 Kconfig 疊加配置 dm9051選項選單**
+## **在 Kconfig 軟件疊加配置 dm9051選項選單**
 ```cmake
 source "drivers/ethernet/Kconfig.dm9051"
 ```
@@ -64,8 +64,9 @@ CONFIG_ETH_DM9051_RX_THREAD_PRIO=2              # RX 執行緒優先權（預設
 "dts/bindings/ethernet/davicom,dm9051.yaml"
 ```
 
-# 四 ，系統應用加載dm9051驅動
-## Device Tree 硬件屬性
+# 四 ，nRF54L15系統應用加載與啟用
+## 四之一 ，硬件屬性
+### Device Tree 設置DM9051硬件屬性
 
 ### 裝置版本環境：
 
@@ -105,7 +106,7 @@ properties:
       with a low pluse during initialization to perform a hardware reset.
 ```
 
-## Device Tree設置
+
 #### GPIO 與 GPIOTE 配置
 
 **GPIO 與 GPIOTE 屬性：**
@@ -312,7 +313,7 @@ properties:
 };
 ```
 
-# 五 ，啟用步驟軟件區塊
+## 四之二 ，啟用步驟與軟硬件區塊
 
 案例資訊:  samples/net/dhcpv4_client/
 
@@ -333,6 +334,80 @@ CONFIG_GPIO=y
 west build -b nrf54l15dk/nrf54l15/cpuapp
 west flash
 ```
+
+**4. 啟用**
+
+操作Reset 或 Power off/on 啟用系統
+
+# 五 ，Rpi4 Model B系統應用加載與啟用
+## 五之一 ，硬件屬性
+
+### Polling 模式（無中斷、無重置）
+(透過不配置腳位來停用)
+
+```dts
+&gpio0 {
+	status = "okay";
+};
+
+&sram0 {
+	reg = <0x200000 0x100000>; /* Expand to 1MB to accommodate AArch64 network stacks */
+};
+
+/ {
+	spi_bitbang: spi-bitbang {
+		compatible = "zephyr,spi-bitbang";
+		status = "okay";
+		#address-cells = <1>;
+		#size-cells = <0>;
+		/* RPi4 GPIOs: SCLK=11, MOSI=10, MISO=9, CS=8 */
+		clk-gpios = <&gpio0 11 GPIO_ACTIVE_HIGH>;
+		mosi-gpios = <&gpio0 10 GPIO_ACTIVE_HIGH>;
+		miso-gpios = <&gpio0 9 GPIO_ACTIVE_HIGH>;
+		/*cs-gpios = <&gpio0 8 GPIO_ACTIVE_LOW>;*/
+		cs-gpios = <&gpio0 7 GPIO_ACTIVE_LOW>;
+
+		/* Adjust interrupt pin as needed. Example: GPIO 26 */
+		dm9051@0 {
+			compatible = "davicom,dm9051";
+			reg = <0>;
+			spi-max-frequency = <8000000>;
+			
+			/*int-gpios = <&gpio0 25 GPIO_ACTIVE_LOW>;*/
+			/*int-gpios = <&gpio0 26 GPIO_ACTIVE_LOW>;*/
+			local-mac-address = [00 00 00 00 00 00];
+		};
+	};
+};
+```
+
+## 五之二 ，啟用步驟與軟硬件區塊
+
+案例資訊:  samples/net/dhcpv4_client/
+
+**1. 在應用程式添加套用的 prj.conf**
+```
+CONFIG_ETH_DM9051=y
+CONFIG_SPI=y
+CONFIG_GPIO=y
+```
+
+**2. 創建 Device Tree Overlay**
+```dts
+/* 參考上方範例配置, 以配置SPI介面通訊 */
+```
+
+**3. 編譯**
+```bash
+west build -b rpi_4b
+
+或原始全編譯: west build -p -b rpi_4b
+```
+
+**4. 啟用**
+
+將build/zephyr/zephyr.bin複製更新到製作好的sdcard,
+插入rpi4 記憶卡槽, 上電啟用系統
 
 # 六 ，重要提醒
 
