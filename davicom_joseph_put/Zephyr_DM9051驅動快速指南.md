@@ -18,12 +18,12 @@
 
 ### nRF54L15目標板
 
-| 類型                | 檔案路徑                                                                                                 | 說明                           |
-| ----------------- | ---------------------------------------------------------------------------------------------------- | ---------------------------- |
-| **應用範例kconfig**   | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 應用配置<br>軟件功能選擇               |
-| **驅動選項kconfig**   | `samples/net/dhcpv4_client/overlay_dm9051.conf`                                                      | 驅動核心功能選擇                     |
-| **應用範例overlay**   | `samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                          | 應用配置<br>硬件佈局選擇               |
-| **驅動介面overlay**   | `samples/net/dhcpv4_client/overlay_dm9051.overlay`                                                   | 驅動硬件SPI介面及腳位選擇               |
+| 類型              | 檔案路徑                                                                                                 | 說明             |
+| --------------- | ---------------------------------------------------------------------------------------------------- | -------------- |
+| **應用範例kconfig** | `samples/net/dhcpv4_client/prj.conf`<br>`samples/net/dhcpv4_client/boards/overlay_nrf54l15.conf`<br> | 應用配置<br>軟件功能選擇 |
+| **驅動選項kconfig** | `samples/net/dhcpv4_client/boards/overlay_dm9051.conf`                                               | 驅動核心功能選擇       |
+| **應用範例overlay** | `samples/net/dhcpv4_client/boards/overlay_nrf54l15.overlay`                                          | 應用配置<br>硬件佈局選擇 |
+| **驅動介面overlay** | `samples/net/dhcpv4_client/boards/overlay_dm9051.overlay`                                            | 驅動硬件SPI介面及腳位選擇 |
 
 ### Rpi4 Model B目標板
 
